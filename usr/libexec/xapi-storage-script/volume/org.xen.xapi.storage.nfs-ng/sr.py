@@ -8,7 +8,7 @@ import errno
 import urlparse
 import json
 
-import xapi.storage.api.v4.volume
+import xapi.storage.api.v5.volume
 from xapi.storage.common import call
 from xapi.storage.libs.libcow.volume import COWVolume
 from xapi.storage.libs.libcow.coalesce import COWCoalesce
@@ -17,7 +17,7 @@ from xapi.storage import log
 import importlib
 
 
-class Implementation(xapi.storage.api.v4.volume.SR_skeleton):
+class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
 
     # Base of SR mounts, SRs will mount in a folder with their GUID
     MOUNTPOINT_ROOT = "/var/run/sr-mount/"
@@ -52,10 +52,10 @@ class Implementation(xapi.storage.api.v4.volume.SR_skeleton):
         uri = configuration['uri']
         u = urlparse.urlparse(uri)
         if u.scheme is None:
-            raise xapi.storage.api.v4.volume.SR_does_not_exist(
+            raise xapi.storage.api.v5.volume.SR_does_not_exist(
                 "The SR URI is invalid")
 
-        raise xapi.storage.api.v4.volume.Unimplemented("probe")
+        raise xapi.storage.api.v5.volume.Unimplemented("probe")
 
         return {
             "srs": srs,
@@ -169,7 +169,7 @@ class Implementation(xapi.storage.api.v4.volume.SR_skeleton):
         os.rmdir(mnt_path)
 
     def ls(self, dbg, sr):
-        raise xapi.storage.api.v4.volume.Unimplemented("ls")
+        raise xapi.storage.api.v5.volume.Unimplemented("ls")
 
     def stat(self, dbg, sr):
         # SR path (sr) is file://<mnt_path>
@@ -178,7 +178,7 @@ class Implementation(xapi.storage.api.v4.volume.SR_skeleton):
         mnt_path = os.path.dirname(sr_path)
 
         if not(os.path.isdir(mnt_path)) or not os.path.ismount(mnt_path):
-            raise xapi.storage.api.v4.volume.Sr_not_attached(mnt_path)
+            raise xapi.storage.api.v5.volume.Sr_not_attached(mnt_path)
 
         # Get the filesystem size
         statvfs = os.statvfs(mnt_path)
@@ -208,7 +208,7 @@ class Implementation(xapi.storage.api.v4.volume.SR_skeleton):
 def call_sr_command():
     """Process the command line arguments and call the required operation"""
     log.log_call_argv()
-    cmd = xapi.storage.api.v4.volume.SR_commandline(Implementation())
+    cmd = xapi.storage.api.v5.volume.SR_commandline(Implementation())
     base = os.path.basename(sys.argv[0])
     if base == 'SR.probe':
         cmd.probe()
@@ -225,7 +225,7 @@ def call_sr_command():
     elif base == 'SR.stat':
         cmd.stat()
     else:
-        raise xapi.storage.api.v4.volume.Unimplemented(base)
+        raise xapi.storage.api.v5.volume.Unimplemented(base)
 
 
 if __name__ == "__main__":

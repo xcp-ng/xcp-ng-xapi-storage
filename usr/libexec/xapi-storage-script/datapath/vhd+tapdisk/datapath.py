@@ -4,8 +4,8 @@ import urlparse
 import os
 import sys
 import xapi
-import xapi.storage.api.v4.datapath
-import xapi.storage.api.v4.volume
+import xapi.storage.api.v5.datapath
+import xapi.storage.api.v5.volume
 import importlib
 from xapi.storage.libs.libcow.datapath import TapdiskDatapath
 from xapi.storage import log
@@ -21,7 +21,7 @@ def get_sr_callbacks(dbg, uri):
     return mod.Callbacks()
 
 
-class Implementation(xapi.storage.api.v4.datapath.Datapath_skeleton):
+class Implementation(xapi.storage.api.v5.datapath.Datapath_skeleton):
 
     def activate(self, dbg, uri, domain):
         cb = get_sr_callbacks(dbg, uri)
@@ -52,7 +52,7 @@ class Implementation(xapi.storage.api.v4.datapath.Datapath_skeleton):
 
 if __name__ == "__main__":
     log.log_call_argv()
-    cmd = xapi.storage.api.v4.datapath.Datapath_commandline(Implementation())
+    cmd = xapi.storage.api.v5.datapath.Datapath_commandline(Implementation())
     base = os.path.basename(sys.argv[0])
     if base == "Datapath.activate":
         cmd.activate()
@@ -67,4 +67,4 @@ if __name__ == "__main__":
     elif base == "Datapath.open":
         cmd.open()
     else:
-        raise xapi.storage.api.v4.datapath.Unimplemented(base)
+        raise xapi.storage.api.v5.datapath.Unimplemented(base)
