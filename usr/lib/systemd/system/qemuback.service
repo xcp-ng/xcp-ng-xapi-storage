@@ -1,0 +1,14 @@
+[Unit]
+Description=qemuback daemon
+After=xenstored.socket
+
+[Service]
+Type=simple
+Restart=on-failure
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/qemuback.py
+StandardOutput=syslog
+StandardError=syslog
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,4 @@
+#!/usr/bin/env python
+import csha
+
+csha.log.debug("HA ha_disarm_fencing")
