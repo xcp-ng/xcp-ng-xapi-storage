@@ -3,11 +3,11 @@
 import os
 import sys
 import xapi
-import xapi.storage.api.v4.plugin
+import xapi.storage.api.v5.plugin
 from xapi.storage import log
 
 
-class Implementation(xapi.storage.api.v4.plugin.Plugin_skeleton):
+class Implementation(xapi.storage.api.v5.plugin.Plugin_skeleton):
 
     def query(self, dbg):
         return {
@@ -20,7 +20,7 @@ class Implementation(xapi.storage.api.v4.plugin.Plugin_skeleton):
             "vendor": "Citrix",
             "copyright": "(C) 2015 Citrix Inc",
             "version": "3.0",
-            "required_api_version": "4.0",
+            "required_api_version": "5.0",
             "features": [
                 "NONPERSISTENT",  # Retire this one
                 "VDI_NONPERSISTENT"],
@@ -30,9 +30,9 @@ class Implementation(xapi.storage.api.v4.plugin.Plugin_skeleton):
 
 if __name__ == "__main__":
     log.log_call_argv()
-    cmd = xapi.storage.api.v4.plugin.Plugin_commandline(Implementation())
+    cmd = xapi.storage.api.v5.plugin.Plugin_commandline(Implementation())
     base = os.path.basename(sys.argv[0])
     if base == "Plugin.Query":
         cmd.query()
     else:
-        raise xapi.storage.api.v4.plugin.Unimplemented(base)
+        raise xapi.storage.api.v5.plugin.Unimplemented(base)

@@ -7,8 +7,8 @@ import urlparse
 import os
 import sys
 import xapi
-import xapi.storage.api.v4.datapath
-import xapi.storage.api.v4.volume
+import xapi.storage.api.v5.datapath
+import xapi.storage.api.v5.volume
 import importlib
 from xapi.storage.libs.libcow.datapath import QdiskDatapath
 from xapi.storage import log
@@ -24,7 +24,7 @@ def get_sr_callbacks(dbg, uri):
     return mod.Callbacks()
 
 
-class Implementation(xapi.storage.api.v4.datapath.Datapath_skeleton):
+class Implementation(xapi.storage.api.v5.datapath.Datapath_skeleton):
     """
     Datapath implementation
     """
@@ -55,7 +55,7 @@ class Implementation(xapi.storage.api.v4.datapath.Datapath_skeleton):
 
 if __name__ == "__main__":
     log.log_call_argv()
-    CMD = xapi.storage.api.v4.datapath.Datapath_commandline(Implementation())
+    CMD = xapi.storage.api.v5.datapath.Datapath_commandline(Implementation())
     CMD_BASE = os.path.basename(sys.argv[0])
     if CMD_BASE == "Datapath.activate":
         CMD.activate()
@@ -70,4 +70,4 @@ if __name__ == "__main__":
     elif CMD_BASE == "Datapath.open":
         CMD.open()
     else:
-        raise xapi.storage.api.v4.datapath.Unimplemented(CMD_BASE)
+        raise xapi.storage.api.v5.datapath.Unimplemented(CMD_BASE)

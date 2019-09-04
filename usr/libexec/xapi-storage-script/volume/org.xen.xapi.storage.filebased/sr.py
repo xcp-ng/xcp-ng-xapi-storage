@@ -7,7 +7,7 @@ import sys
 import urlparse
 import json
 
-import xapi.storage.api.v4.volume
+import xapi.storage.api.v5.volume
 from xapi.storage.common import call
 from xapi.storage.libs.libcow.volume import COWVolume
 from xapi.storage.libs.libcow.coalesce import COWCoalesce
@@ -19,7 +19,7 @@ import filebased
 mountpoint_root = "/var/run/sr-mount/"
 
 
-class Implementation(xapi.storage.api.v4.volume.SR_skeleton):
+class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
 
     def probe(self, dbg, configuration):
         uris = []
@@ -104,7 +104,7 @@ class Implementation(xapi.storage.api.v4.volume.SR_skeleton):
         mnt_path = sr
 
         if not(os.path.isdir(mnt_path)):
-            raise xapi.storage.api.v4.volume.Sr_not_attached(mnt_path)
+            raise xapi.storage.api.v5.volume.Sr_not_attached(mnt_path)
 
         # Get the filesystem size
         statvfs = os.statvfs(mnt_path)
@@ -131,7 +131,7 @@ class Implementation(xapi.storage.api.v4.volume.SR_skeleton):
 
 if __name__ == "__main__":
     log.log_call_argv()
-    cmd = xapi.storage.api.v4.volume.SR_commandline(Implementation())
+    cmd = xapi.storage.api.v5.volume.SR_commandline(Implementation())
     base = os.path.basename(sys.argv[0])
     if base == 'SR.probe':
         cmd.probe()
@@ -148,4 +148,4 @@ if __name__ == "__main__":
     elif base == 'SR.stat':
         cmd.stat()
     else:
-        raise xapi.storage.api.v4.volume.Unimplemented(base)
+        raise xapi.storage.api.v5.volume.Unimplemented(base)
