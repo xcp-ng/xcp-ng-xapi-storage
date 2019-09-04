@@ -11,7 +11,7 @@ class Implementation(xapi.storage.api.v5.plugin.Plugin_skeleton):
 
     def query(self, dbg):
         return {
-            "plugin": "vhd+tapdisk",
+            "plugin": "tapdisk",
             "name": "The cow + tapdisk user-space datapath plugin",
             "description": ("This plugin manages and configures tapdisk"
                             " instances backend for cow image format built"
