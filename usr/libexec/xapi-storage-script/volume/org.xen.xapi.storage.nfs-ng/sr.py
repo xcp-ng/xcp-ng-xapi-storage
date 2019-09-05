@@ -122,7 +122,7 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
                 raise
 
         # Create the metadata database
-        COWVolume.create_metabase(sr_path + "/sqlite3-metadata.db")
+        importlib.import_module("nfs-ng").Callbacks().create_database(sr_path)
 
         read_caching = True
         if 'read_caching' in configuration:
