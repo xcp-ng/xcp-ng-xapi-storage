@@ -6,6 +6,7 @@ from xapi.storage.libs import qmp
 from xapi.storage.libs.util import var_run_prefix
 import sys
 
+
 def watch(path):
     cmd = ["/usr/bin/xenstore-watch", path]
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
@@ -19,13 +20,11 @@ def read(path):
     return proc.stdout.readline().strip()
 
 
-def found_new_qdisk(domid, devid, contents):
-    tokens = contents.split(':')
-    (device, node_name, qmp_sock) = tokens
+def found_new_qdisk(domid, devid, uuid):
+    q = qmp.QEMUMonitorProtocol(
+        '{}/qemu-dp/qmp_sock.{}'.format(var_run_prefix(), uuid))
 
-    q = qmp.QEMUMonitorProtocol(qmp_sock)
-
-    path = "{}/{}".format(var_run_prefix(), device)
+    path = '{}/{}'.format(var_run_prefix(), uuid)
     with open(path, 'w') as f:
         f.write("/local/domain/{}/device/vbd/{}/state".format(domid, devid))
 
@@ -33,8 +32,8 @@ def found_new_qdisk(domid, devid, contents):
     params['domid'] = domid
     params['devid'] = devid
     params['type'] = 'qdisk'
-    params['blocknode'] = node_name
-    params['devicename'] = device
+    params['blocknode'] = 'qemu_node'
+    params['devicename'] = uuid
 
     connected = False
     count = 0
@@ -69,4 +68,6 @@ while True:
         contents = read(path)
         print ("Found new qdisk with domid=%d devid=%d contents=%s"
                % (domid, devid, contents))
-        found_new_qdisk(domid, devid, contents)
+        (prefix, uuid) = contents.split(':')
+        if prefix == 'vdi':
+            found_new_qdisk(domid, devid, uuid)
