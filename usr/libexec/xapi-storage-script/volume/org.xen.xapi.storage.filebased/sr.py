@@ -1,57 +1,49 @@
 #!/usr/bin/env python
 
-from __future__ import division
 import os
 import os.path
 import sys
 import urlparse
-import json
 
-import xapi.storage.api.v5.volume
-from xapi.storage.common import call
-from xapi.storage.libs.libcow.volume import COWVolume
-from xapi.storage.libs.libcow.coalesce import COWCoalesce
 from xapi.storage import log
+from xapi.storage.libs import util
+from xapi.storage.libs.libcow.coalesce import COWCoalesce
+from xapi.storage.libs.libcow.volume import COWVolume
+import xapi.storage.api.v5.volume
 
 import filebased
 
-# For a block device /a/b/c, we will mount it at <mountpoint_root>/a/b/c
-mountpoint_root = "/var/run/sr-mount/"
 
-
+@util.decorate_all_routines(util.log_exceptions_in_function)
 class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
-
     def probe(self, dbg, configuration):
-        uris = []
-        srs = []
         return {
-            "srs": srs,
-            "uris": uris
+            'srs': [],
+            'uris': []
         }
 
     def attach(self, dbg, configuration):
-        uri = configuration['uri']
+        uri = configuration['file-uri']
+        log.debug('{}: SR.attach: config={}, uri={}'.format(
+            dbg, configuration, uri))
 
         sr = urlparse.urlparse(uri).path
 
         # Start GC for this host
-        COWCoalesce.start_gc(dbg, "filebased", sr)
+        COWCoalesce.start_gc(dbg, 'filebased', sr)
 
         return sr
 
-    def create(self, dbg, uuid, configuration, name, description):
-        log.debug("%s: SR.create: config=%s, uuid=%s" %
-                  (dbg, configuration, uuid))
+    def create(self, dbg, sr_uuid, configuration, name, description):
+        log.debug('{}: SR.create: config={}, sr_uuid={}'.format(
+            dbg, configuration, sr_uuid))
 
-        uri = configuration['uri']
-
-        sr_path = urlparse.urlparse(uri).path
-        log.debug("%s: SR.create: sr_path = %s" % (dbg, sr_path))
-        sr_id = uuid
-        log.debug("%s: SR.create: sr_id = %s" % (dbg, sr_id))
+        uri = configuration['file-uri']
+        sr = urlparse.urlparse(uri).path
+        log.debug('{}: SR.create: sr={}'.format(dbg, sr))
 
         # Create the metadata database
-        filebased.Callbacks().create_database(sr_path)
+        filebased.Callbacks().create_database(sr)
 
         read_caching = True
         if 'read_caching' in configuration:
@@ -60,76 +52,67 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
                 read_caching = False
 
         meta = {
-            "name": name,
-            "description": description,
-            "uri": uri,
-            "unique_id": sr_id,
-            "fsname": sr_id,
-            "read_caching": read_caching,
-            "keys": {}
+            'name': name,
+            'description': description,
+            'uri': uri,
+            'unique_id': sr_uuid,
+            'read_caching': read_caching,
+            'keys': {}
         }
-        metapath = sr_path + "/meta.json"
-        log.debug("%s: dumping metadata to %s: %s" % (dbg, metapath, meta))
+        util.update_sr_metadata(dbg, 'file://' + sr, meta)
 
-        with open(metapath, "w") as json_fp:
-            json.dump(meta, json_fp)
-            json_fp.write("\n")
-
-        log.debug("%s: finished" % (dbg))
         return configuration
 
     def destroy(self, dbg, sr):
-        # stop GC
-        try:
-            COWCoalesce.stop_gc(dbg, "filebased", sr)
-        except:
-            log.debug("GC already stopped")
-        call("dbg", ["/usr/bin/rm", "-rf", sr + "/*"])
-        return self.detach(dbg, sr)
+        self.detach(dbg, sr)
+        call('dbg', ['/usr/bin/rm', '-rf', sr + '/*'])
 
     def detach(self, dbg, sr):
         # stop GC
         try:
-            COWCoalesce.stop_gc(dbg, "filebased", sr)
+            COWCoalesce.stop_gc(dbg, 'filebased', sr)
         except:
-            log.debug("GC already stopped")
-        return
+            log.debug('GC already stopped')
 
     def ls(self, dbg, sr):
         return COWVolume.ls(dbg, sr, filebased.Callbacks())
 
-    def stat(self, dbg, sr):
-        # SR path (sr) is file://<mnt_path>
-        # Get mnt_path by dropping url scheme
-        mnt_path = sr
+    def set_description(self, dbg, sr, new_description):
+        util.update_sr_metadata(
+            dbg, 'file://' + sr, {'description': new_description})
 
-        if not(os.path.isdir(mnt_path)):
-            raise xapi.storage.api.v5.volume.Sr_not_attached(mnt_path)
+    def set_name(self, dbg, sr, new_name):
+        util.update_sr_metadata(dbg, 'file://' + sr, {'name': new_name})
+
+    def stat(self, dbg, sr):
+        if not os.path.isdir(sr):
+            raise xapi.storage.api.v5.volume.Sr_not_attached(sr)
 
         # Get the filesystem size
-        statvfs = os.statvfs(mnt_path)
+        statvfs = os.statvfs(sr)
         psize = statvfs.f_blocks * statvfs.f_frsize
         fsize = statvfs.f_bfree * statvfs.f_frsize
-        log.debug("%s: statvfs says psize = %Ld" % (dbg, psize))
+        log.debug('{}: statvfs says psize = {}'.format(dbg, psize))
 
         overprovision = COWVolume.get_sr_provisioned_size(
             sr, filebased.Callbacks()) / psize
 
+        meta = util.get_sr_metadata(dbg, 'file://' + sr)
         return {
-            "sr": sr,
-            "uuid": "xxx",
-            "name": "SR Name",
-            "description": "FILEBASED SR",
-            "total_space": psize,
-            "free_space": fsize,
-            "overprovision": overprovision,
-            "datasources": [],
-            "clustered": True,
-            "health": ["Healthy", ""]
+            'sr': sr,
+            'name': meta['name'],
+            'description': meta['description'],
+            'total_space': psize,
+            'free_space': fsize,
+            'uuid': meta['unique_id'],
+            'overprovision': overprovision,
+            'datasources': [],
+            'clustered': True,
+            'health': ['Healthy', '']
         }
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     log.log_call_argv()
     cmd = xapi.storage.api.v5.volume.SR_commandline(Implementation())
     base = os.path.basename(sys.argv[0])
@@ -145,6 +128,10 @@ if __name__ == "__main__":
         cmd.detach()
     elif base == 'SR.ls':
         cmd.ls()
+    elif base == 'SR.set_description':
+        cmd.set_description()
+    elif base == 'SR.set_name':
+        cmd.set_name()
     elif base == 'SR.stat':
         cmd.stat()
     else:
