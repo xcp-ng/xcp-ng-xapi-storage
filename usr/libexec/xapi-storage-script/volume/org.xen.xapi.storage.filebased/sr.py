@@ -65,7 +65,7 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
 
     def destroy(self, dbg, sr):
         self.detach(dbg, sr)
-        call('dbg', ['/usr/bin/rm', '-rf', sr + '/*'])
+        util.remove_folder_content(sr)
 
     def detach(self, dbg, sr):
         # stop GC
