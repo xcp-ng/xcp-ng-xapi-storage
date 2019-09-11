@@ -26,12 +26,25 @@ project(xcp-ng-xapi-storage VERSION 1.0.0 LANGUAGES)
 
 find_package(Python2 COMPONENTS Interpreter REQUIRED)
 
-function (create_symlink TARGET LINK_NAME WORKING_DIRECTORY)
-  install(CODE "EXECUTE_PROCESS( \
-    COMMAND ${CMAKE_COMMAND} -E create_symlink ${TARGET} ${LINK_NAME} \
-    WORKING_DIRECTORY ${WORKING_DIRECTORY}
-  )")
-endfunction ()
+# ------------------------------------------------------------------------------
+# Config.
+# ------------------------------------------------------------------------------
+
+set(DATAPATH_PLUGINS
+  qdisk
+  tapdisk
+)
+
+set(VOLUME_PLUGINS
+  org.xen.xapi.storage.ext4-ng
+  org.xen.xapi.storage.filebased
+  org.xen.xapi.storage.nfs-ng
+)
+
+set(LIBS_TASKS
+  libcow/coalesce.py
+  libcow/db_backup.py
+)
 
 # ------------------------------------------------------------------------------
 
@@ -51,50 +64,93 @@ add_custom_target(target ALL DEPENDS ${STORAGE_LIBS_BUILD})
 # Install.
 # ------------------------------------------------------------------------------
 
-# Install libs.
-install(DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/usr/"
-  DESTINATION ${CMAKE_INSTALL_PREFIX}
+# Install libs and tasks.
+list(JOIN LIBS_TASKS "|" LIBS_TASKS_REGEX)
+set(LIBS_TASKS_REGEX "(${LIBS_TASKS_REGEX})$")
+
+install(DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/usr"
+  DESTINATION .
+  PATTERN REGEX ${LIBS_TASKS_REGEX} EXCLUDE
+)
+
+install(DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/usr"
+  DESTINATION .
+  FILE_PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
+  FILES_MATCHING
+  PATTERN REGEX ${LIBS_TASKS_REGEX}
 )
 
 # Install daemons.
 install(FILES daemons/qemuback/qemuback.py
-  DESTINATION "${CMAKE_INSTALL_PREFIX}/bin"
+  DESTINATION bin
+  PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
 )
 install(FILES daemons/qemuback/qemuback.service
-  DESTINATION "${CMAKE_INSTALL_PREFIX}/systemd/system"
+  DESTINATION lib/systemd/system
 )
 
 # Install plugins.
-install(DIRECTORY plugins/
-  DESTINATION "${CMAKE_INSTALL_PREFIX}/libexec/xapi-storage-script"
-)
+set(PLUGINS_INSTALL_PATH libexec/xapi-storage-script)
 
-set(PLUGINS_INSTALL_PATH "${CMAKE_INSTALL_PREFIX}/libexec/xapi-storage-script")
+function (install_plugin IN OUT TYPE)
+  set(BIN_REGEX)
+  if (TYPE STREQUAL "DATAPATH")
+    set(BIN_REGEX "${IN}/(datapath|plugin).py$")
+  else ()
+    set(BIN_REGEX "${IN}/(sr|volume|plugin).py$")
+  endif ()
 
-# Create symlinks for datapath plugins.
-foreach (PLUGIN_NAME qdisk tapdisk)
-  set(PLUGIN_DIR "${PLUGINS_INSTALL_PATH}/datapath/${PLUGIN_NAME}")
+  install(DIRECTORY ${IN}
+    DESTINATION ${OUT}
+    PATTERN REGEX ${BIN_REGEX} EXCLUDE
+  )
+
+  install(DIRECTORY ${IN}
+    DESTINATION ${OUT}
+    FILE_PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
+    FILES_MATCHING
+    PATTERN REGEX ${BIN_REGEX}
+  )
+endfunction ()
+
+function (create_symlink TARGET LINK_NAME WORKING_DIRECTORY)
+  message("SYM ${TARGET} ${LINK_NAME} ${WORKING_DIRECTORY}")
+  install(CODE "EXECUTE_PROCESS( \
+    COMMAND ${CMAKE_COMMAND} -E create_symlink ${TARGET} ${LINK_NAME} \
+    WORKING_DIRECTORY ${WORKING_DIRECTORY}
+  )")
+endfunction ()
+
+foreach (PLUGIN_NAME ${DATAPATH_PLUGINS})
+  set(IN_PLUGIN_DIR "plugins/datapath/${PLUGIN_NAME}")
+  set(OUT_PLUGIN_DIR "${CMAKE_INSTALL_PREFIX}/${PLUGINS_INSTALL_PATH}/datapath/${PLUGIN_NAME}")
+
+  install_plugin(${IN_PLUGIN_DIR} ${OUT_PLUGIN_DIR} "DATAPATH")
+
   foreach (LINK_NAME activate attach close deactivate detach open)
-    create_symlink("datapath.py" "Datapath.${LINK_NAME}" "${PLUGIN_DIR}")
+    create_symlink("datapath.py" "Datapath.${LINK_NAME}" ${OUT_PLUGIN_DIR})
   endforeach ()
-  create_symlink("plugin.py" "Plugin.Query" "${PLUGIN_DIR}")
+  create_symlink("plugin.py" "Plugin.Query" ${OUT_PLUGIN_DIR})
 endforeach ()
 
-# Create symlinks for volume plugins.
-foreach (PLUGIN_NAME ext4-ng filebased nfs-ng)
-  set(PLUGIN_DIR "${PLUGINS_INSTALL_PATH}/volume/org.xen.xapi.storage.${PLUGIN_NAME}")
+foreach (PLUGIN_NAME ${VOLUME_PLUGINS})
+  set(IN_PLUGIN_DIR "plugins/volume/${PLUGIN_NAME}")
+  set(OUT_PLUGIN_DIR "${CMAKE_INSTALL_PREFIX}/${PLUGINS_INSTALL_PATH}/volume/${PLUGIN_NAME}")
+
+  install_plugin(${IN_PLUGIN_DIR} ${OUT_PLUGIN_DIR} "VOLUME")
+
   foreach (LINK_NAME clone create destroy resize set set_description set_name snapshot stat unset)
-    create_symlink("volume.py" "Volume.${LINK_NAME}" "${PLUGIN_DIR}")
+    create_symlink("volume.py" "Volume.${LINK_NAME}" ${OUT_PLUGIN_DIR})
   endforeach ()
   foreach (LINK_NAME attach create destroy detach ls probe set_description set_name stat)
-    create_symlink("sr.py" "SR.${LINK_NAME}" "${PLUGIN_DIR}")
+    create_symlink("sr.py" "SR.${LINK_NAME}" ${OUT_PLUGIN_DIR})
   endforeach ()
   foreach (LINK_NAME Query diagnostics)
-    create_symlink("plugin.py" "Plugin.${LINK_NAME}" "${PLUGIN_DIR}")
+    create_symlink("plugin.py" "Plugin.${LINK_NAME}" ${OUT_PLUGIN_DIR})
   endforeach ()
 endforeach ()
 
 # Install doc.
 install(FILES LICENSE README.md
-  DESTINATION "${CMAKE_INSTALL_PREFIX}/share/doc/${CMAKE_PROJECT_NAME}-${PROJECT_VERSION}"
+  DESTINATION "share/doc/${CMAKE_PROJECT_NAME}-${PROJECT_VERSION}"
 )
