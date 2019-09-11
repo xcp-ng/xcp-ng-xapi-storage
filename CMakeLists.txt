@@ -114,7 +114,6 @@ function (install_plugin IN OUT TYPE)
 endfunction ()
 
 function (create_symlink TARGET LINK_NAME WORKING_DIRECTORY)
-  message("SYM ${TARGET} ${LINK_NAME} ${WORKING_DIRECTORY}")
   install(CODE "EXECUTE_PROCESS( \
     COMMAND ${CMAKE_COMMAND} -E create_symlink ${TARGET} ${LINK_NAME} \
     WORKING_DIRECTORY ${WORKING_DIRECTORY}
