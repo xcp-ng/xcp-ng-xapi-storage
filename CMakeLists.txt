@@ -48,17 +48,18 @@ set(LIBS_TASKS
 
 # ------------------------------------------------------------------------------
 
-set(STORAGE_LIBS_BUILD "${CMAKE_CURRENT_BINARY_DIR}/xcp-ng-xapi-storage-libs.timestamp")
+set(STORAGE_LIBS_TARGET "${CMAKE_CURRENT_BINARY_DIR}/xcp-ng-xapi-storage-libs.timestamp")
+set(STORAGE_LIBS "${CMAKE_CURRENT_BINARY_DIR}/setup_py")
 
 file(GLOB_RECURSE STORAGE_LIBS_SOURCES "xapi/*.py")
-add_custom_command(OUTPUT ${STORAGE_LIBS_BUILD}
-  COMMAND ${Python2_EXECUTABLE} setup.py install --root ${CMAKE_CURRENT_BINARY_DIR}
-  COMMAND ${CMAKE_COMMAND} -E touch ${STORAGE_LIBS_BUILD}
+add_custom_command(OUTPUT ${STORAGE_LIBS_TARGET}
+  COMMAND ${Python2_EXECUTABLE} setup.py install --root "${STORAGE_LIBS}"
+  COMMAND ${CMAKE_COMMAND} -E touch ${STORAGE_LIBS_TARGET}
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
   DEPENDS setup.py ${STORAGE_LIBS_SOURCES}
 )
 
-add_custom_target(target ALL DEPENDS ${STORAGE_LIBS_BUILD})
+add_custom_target(target ALL DEPENDS ${STORAGE_LIBS_TARGET})
 
 # ------------------------------------------------------------------------------
 # Install.
@@ -72,12 +73,12 @@ include(GNUInstallDirs)
 list(JOIN LIBS_TASKS "|" LIBS_TASKS_REGEX)
 set(LIBS_TASKS_REGEX "(${LIBS_TASKS_REGEX})$")
 
-install(DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/usr/"
+install(DIRECTORY "${STORAGE_LIBS}/usr/"
   DESTINATION .
   PATTERN REGEX ${LIBS_TASKS_REGEX} EXCLUDE
 )
 
-install(DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/usr/"
+install(DIRECTORY "${STORAGE_LIBS}/usr/"
   DESTINATION .
   FILE_PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
   FILES_MATCHING
@@ -94,8 +95,7 @@ install(FILES daemons/qemuback/qemuback.service
 )
 
 # Install plugins.
-set(PLUGINS_INSTALL_PATH "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBEXECDIR}/xapi-storage-script")
-
+set(PLUGINS_INSTALL_PATH "${CMAKE_INSTALL_FULL_LIBEXECDIR}/xapi-storage-script")
 # Use an absolute path to create correctly symlinks.
 # When cmake is called like this: `/usr/bin/cmake -DCMAKE_INSTALL_PREFIX:PATH=toto`, the prefix path
 # is relative. It is absolute when cmake is called: `/usr/bin/cmake -DCMAKE_INSTALL_PREFIX=toto`.
@@ -128,13 +128,13 @@ endfunction ()
 function (create_plugin_symlink PLUGIN_NAME TARGET LINK_NAME PLUGINS_DIR)
   set(RESULT_SYMLINK RESULT_SYMLINK_${PLUGIN_NAME}_${LINK_NAME})
 
-  set(WORKING_DIRECTORY "${PLUGINS_DIR}/${PLUGIN_NAME}")
-
   install(CODE "
-    message(\"Create symlink: ${TARGET} ${LINK_NAME} in ${WORKING_DIRECTORY}\")
+    # Use DESTDIR if necessary!
+    set(WORKING_DIRECTORY \"\$ENV{DESTDIR}/${PLUGINS_DIR}/${PLUGIN_NAME}\")
+    message(\"Create symlink: ${TARGET} ${LINK_NAME} in \${WORKING_DIRECTORY}\")
     execute_process(
       COMMAND ${CMAKE_COMMAND} -E create_symlink ${TARGET} ${LINK_NAME}
-      WORKING_DIRECTORY ${WORKING_DIRECTORY}
+      WORKING_DIRECTORY \${WORKING_DIRECTORY}
       RESULT_VARIABLE ${RESULT_SYMLINK}
     )
     if (NOT \"\${${RESULT_SYMLINK}}\" STREQUAL \"0\")
