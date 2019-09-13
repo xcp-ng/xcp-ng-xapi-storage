@@ -101,7 +101,10 @@ set(PLUGINS_INSTALL_PATH "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBEXECDIR}/xa
 # is relative. It is absolute when cmake is called: `/usr/bin/cmake -DCMAKE_INSTALL_PREFIX=toto`.
 get_filename_component(PLUGINS_INSTALL_PATH ${PLUGINS_INSTALL_PATH} ABSOLUTE BASE_DIR ${CMAKE_CURRENT_BINARY_DIR})
 
-function (install_plugin IN OUT TYPE)
+function (install_plugin PLUGIN_NAME IN OUT TYPE)
+  set(IN "${IN}/${PLUGIN_NAME}")
+  set(OUT "${OUT}/${PLUGIN_NAME}")
+
   set(BIN_REGEX)
   if (TYPE STREQUAL "DATAPATH")
     set(BIN_REGEX "${IN}/(datapath|plugin).py$")
@@ -122,39 +125,50 @@ function (install_plugin IN OUT TYPE)
   )
 endfunction ()
 
-function (create_symlink TARGET LINK_NAME WORKING_DIRECTORY)
-  install(CODE "EXECUTE_PROCESS( \
-    COMMAND ${CMAKE_COMMAND} -E create_symlink ${TARGET} ${LINK_NAME} \
-    WORKING_DIRECTORY ${WORKING_DIRECTORY}
-  )")
+function (create_plugin_symlink PLUGIN_NAME TARGET LINK_NAME PLUGINS_DIR)
+  set(RESULT_SYMLINK RESULT_SYMLINK_${PLUGIN_NAME}_${LINK_NAME})
+
+  set(WORKING_DIRECTORY "${PLUGINS_DIR}/${PLUGIN_NAME}")
+
+  install(CODE "
+    message(\"Create symlink: ${TARGET} ${LINK_NAME} in ${WORKING_DIRECTORY}\")
+    execute_process(
+      COMMAND ${CMAKE_COMMAND} -E create_symlink ${TARGET} ${LINK_NAME}
+      WORKING_DIRECTORY ${WORKING_DIRECTORY}
+      RESULT_VARIABLE ${RESULT_SYMLINK}
+    )
+    if (NOT \"\${${RESULT_SYMLINK}}\" STREQUAL \"0\")
+      message(FATAL_ERROR \"Failed to create symlink: \${${RESULT_SYMLINK}}...\")
+    endif ()
+  ")
 endfunction ()
 
 foreach (PLUGIN_NAME ${DATAPATH_PLUGINS})
-  set(IN_PLUGIN_DIR "plugins/datapath/${PLUGIN_NAME}")
-  set(OUT_PLUGIN_DIR "${PLUGINS_INSTALL_PATH}/datapath/${PLUGIN_NAME}")
+  set(IN_PLUGINS_DIR "plugins/datapath")
+  set(OUT_PLUGINS_DIR "${PLUGINS_INSTALL_PATH}/datapath")
 
-  install_plugin(${IN_PLUGIN_DIR} ${OUT_PLUGIN_DIR} "DATAPATH")
+  install_plugin(${PLUGIN_NAME} ${IN_PLUGINS_DIR} ${OUT_PLUGINS_DIR} "DATAPATH")
 
   foreach (LINK_NAME activate attach close deactivate detach open)
-    create_symlink("datapath.py" "Datapath.${LINK_NAME}" ${OUT_PLUGIN_DIR})
+    create_plugin_symlink(${PLUGIN_NAME} "datapath.py" "Datapath.${LINK_NAME}" ${OUT_PLUGINS_DIR})
   endforeach ()
-  create_symlink("plugin.py" "Plugin.Query" ${OUT_PLUGIN_DIR})
+  create_plugin_symlink(${PLUGIN_NAME} "plugin.py" "Plugin.Query" ${OUT_PLUGINS_DIR})
 endforeach ()
 
 foreach (PLUGIN_NAME ${VOLUME_PLUGINS})
-  set(IN_PLUGIN_DIR "plugins/volume/${PLUGIN_NAME}")
-  set(OUT_PLUGIN_DIR "${PLUGINS_INSTALL_PATH}/volume/${PLUGIN_NAME}")
+  set(IN_PLUGINS_DIR "plugins/volume")
+  set(OUT_PLUGINS_DIR "${PLUGINS_INSTALL_PATH}/volume")
 
-  install_plugin(${IN_PLUGIN_DIR} ${OUT_PLUGIN_DIR} "VOLUME")
+  install_plugin(${PLUGIN_NAME} ${IN_PLUGINS_DIR} ${OUT_PLUGINS_DIR} "VOLUME")
 
   foreach (LINK_NAME clone create destroy resize set set_description set_name snapshot stat unset)
-    create_symlink("volume.py" "Volume.${LINK_NAME}" ${OUT_PLUGIN_DIR})
+    create_plugin_symlink(${PLUGIN_NAME} "volume.py" "Volume.${LINK_NAME}" ${OUT_PLUGINS_DIR})
   endforeach ()
   foreach (LINK_NAME attach create destroy detach ls probe set_description set_name stat)
-    create_symlink("sr.py" "SR.${LINK_NAME}" ${OUT_PLUGIN_DIR})
+    create_plugin_symlink(${PLUGIN_NAME} "sr.py" "SR.${LINK_NAME}" ${OUT_PLUGINS_DIR})
   endforeach ()
   foreach (LINK_NAME Query diagnostics)
-    create_symlink("plugin.py" "Plugin.${LINK_NAME}" ${OUT_PLUGIN_DIR})
+    create_plugin_symlink(${PLUGIN_NAME} "plugin.py" "Plugin.${LINK_NAME}" ${OUT_PLUGINS_DIR})
   endforeach ()
 endforeach ()
 
