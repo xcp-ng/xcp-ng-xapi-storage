@@ -22,7 +22,7 @@ cmake_minimum_required(VERSION 3.13.1)
 
 # ------------------------------------------------------------------------------
 
-project(xcp-ng-xapi-storage VERSION 1.0.1 LANGUAGES)
+project(xcp-ng-xapi-storage VERSION 1.0.2 LANGUAGES)
 
 find_package(Python2 COMPONENTS Interpreter REQUIRED)
 
