@@ -1,4 +1,9 @@
-# Plugins to manage xapi storage datapaths
+# xcp-ng-xapi-storage
+
+__Important:__ Drivers and libraries were forked from the Citrix open source packages of SMAPIv3 (before it was closed source).
+The original code was forked from `xapi-storage-plugins-1.6.0-1.x86_64.rpm` (LGPL) in XenServer 7.5.
+
+## Plugins to manage xapi storage datapaths
 
 These plugins dictate how a storage volumes (local files, local block devices, iSCSI LUNs, Ceph RBD devices etc etc) should be mapped to Virtual Machines running on Xen.
 
