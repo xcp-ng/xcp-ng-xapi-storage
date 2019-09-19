@@ -39,6 +39,12 @@ class COWDatapath(object):
     def activate_internal(dbg, opq, vdi, img, cb):
         raise NotImplementedError('Override in dp specifc class')
 
+    @staticmethod
+    def _get_image_from_vdi(vdi, vol_path):
+        if vdi.sharable or util.is_block_device(vol_path):
+            return image.Raw(vol_path)
+        return image.Cow(vol_path)
+
     @classmethod
     def activate(cls, dbg, uri, domain, cb):
         this_host_label = cb.get_current_host()
@@ -53,13 +59,15 @@ class COWDatapath(object):
                             "SR_BACKEND_FAILURE_24",
                             ["VDIInUse", "The VDI is currently in use"])
                     vol_path = cb.volumeGetPath(opq, str(vdi.volume.id))
-                    if vdi.sharable:
-                        img = image.Raw(vol_path)
-                    else:
+                    img = cls._get_image_from_vdi(vdi, vol_path)
+                    if not vdi.sharable:
                         db.update_vdi_active_on(vdi.uuid, this_host_label)
-                        img = image.Cow(vol_path)
 
-                    cls.activate_internal(dbg, opq, vdi, img, cb)
+                    try:
+                        cls.activate_internal(dbg, opq, vdi, img, cb)
+                    except:
+                        log.debug('{}: activate_internal failed'.format(dbg))
+                        raise
 
     @staticmethod
     def deactivate_internal(dbg, opq, vdi, img, cb):
@@ -73,11 +81,10 @@ class COWDatapath(object):
                 with cb.db_context(opq) as db:
                     vdi = db.get_vdi_by_id(key)
                     vol_path = cb.volumeGetPath(opq, str(vdi.volume.id))
-                    if vdi.sharable:
-                        img = image.Raw(vol_path)
-                    else:
+                    img = cls._get_image_from_vdi(vdi, vol_path)
+                    if not vdi.sharable:
                         db.update_vdi_active_on(vdi.uuid, None)
-                        img = image.Cow(vol_path)
+
                     try:
                         cls.deactivate_internal(dbg, opq, vdi, img, cb)
                     except:

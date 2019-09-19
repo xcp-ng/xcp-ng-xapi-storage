@@ -6,6 +6,7 @@ import inspect
 import json
 import os
 import shutil
+import stat
 import string
 import subprocess
 import sys
@@ -32,6 +33,33 @@ def mkdir_p(path, mode=0o777):
             os.chmod(path, mode)
         else:
             raise
+
+
+def is_block_device(filename):
+    return stat.S_ISBLK(os.stat(filename).st_mode)
+
+
+def get_file_size(filename):
+    """
+    Get the size of a file or block device.
+    """
+    res = os.stat(filename)
+    if stat.S_ISBLK(res.st_mode):
+        with open(filename, 'rb') as f:
+            f.seek(0, 2)
+            return f.tell()
+    else:
+        return res.st_size
+
+
+def get_physical_file_size(filename):
+    res = os.stat(filename)
+    if stat.S_ISBLK(res.st_mode):
+        with open(filename, 'rb') as f:
+            f.seek(0, 2)
+            return f.tell()
+    else:
+        return res.st_blocks * 512
 
 
 def lock_file(dbg, filename, mode='a+'):

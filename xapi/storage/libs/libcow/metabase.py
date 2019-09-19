@@ -522,6 +522,18 @@ class VolumeMetabase(object):
 
         return vdis
 
+    def get_all_volumes(self):
+        """
+        Get all volumes.
+        """
+        res = self._conn.execute("SELECT * FROM volume")
+
+        volumes = []
+        for row in res:
+            volumes.append(Volume.from_row(row))
+
+        return volumes
+
     def get_children(self, volume_id):
         """
         Get direct children of the specified volume

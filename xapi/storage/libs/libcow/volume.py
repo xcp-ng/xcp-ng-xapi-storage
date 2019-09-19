@@ -120,6 +120,10 @@ class COWVolume(object):
             with cb.db_context(opq) as db:
                 cb.volumeResize(opq, str(vdi.volume.id), vsize)
                 vol_path = cb.volumeGetPath(opq, str(vdi.volume.id))
+                if (util.is_block_device(vol_path)):
+                    raise util.create_storage_error(
+                        'SR_BACKEND_FAILURE_110',
+                        ['Cannot resize block device', ''])
                 image_format.image_utils.resize(dbg, vol_path, size_mib)
                 db.update_volume_vsize(vdi.volume.id, vsize)
 
@@ -168,6 +172,11 @@ class COWVolume(object):
                               vdi.volume.parent_id)
 
                     vol_path = cb.volumeGetPath(opq, str(vol_id))
+                    if (util.is_block_device(vol_path)):
+                        raise util.create_storage_error(
+                            'SR_BACKEND_FAILURE_82',
+                            ['Cannot clone or snapshot block device', ''])
+
                     snap_volume = db.insert_child_volume(vol_id,
                                                          vdi.volume.vsize)
                     snap_path = cb.volumeCreate(opq, str(snap_volume.id),

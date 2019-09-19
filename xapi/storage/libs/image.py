@@ -17,6 +17,7 @@ class Cow(Path):
     def __init__(self, path):
         Path.__init__(self, path)
 
+    # FIXME: Why vhd and not qcow2?
     def format(self):
         return "vhd"
 
