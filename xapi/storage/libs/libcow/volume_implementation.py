@@ -5,7 +5,6 @@ from xapi.storage.libs import util
 
 @util.decorate_all_routines(util.log_exceptions_in_function)
 class Implementation(xapi.storage.api.v5.volume.Volume_skeleton):
-
     def __init__(self, callbacks):
         self.callbacks = callbacks
 

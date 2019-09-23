@@ -39,6 +39,7 @@ set(VOLUME_PLUGINS
   org.xen.xapi.storage.ext4-ng
   org.xen.xapi.storage.filebased
   org.xen.xapi.storage.nfs-ng
+  org.xen.xapi.storage.raw-device
 )
 
 set(LIBS_TASKS

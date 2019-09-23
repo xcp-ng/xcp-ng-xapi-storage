@@ -1,9 +1,9 @@
 """
 Map image formats to datapath URIs and tools
 """
-from .vhdutil import VHDUtil
 from .qcow2util import QCOW2Util
 from .rawutil import RawUtil
+from .vhdutil import VHDUtil
 
 
 class ImageFormat(object):
@@ -13,6 +13,7 @@ class ImageFormat(object):
     IMAGE_RAW = 0
     IMAGE_VHD = 1
     IMAGE_QCOW2 = 2
+
     _formats = None
 
     def __init__(self, uri_prefix, image_utils):

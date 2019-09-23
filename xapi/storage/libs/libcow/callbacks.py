@@ -133,8 +133,7 @@ class Callbacks(object):
         pass
 
     def volumeGetPhysSize(self, opq, name):
-        stat = os.stat(self._get_volume_path(opq, name))
-        return stat.st_blocks * 512
+        return util.get_physical_file_size(self._get_volume_path(opq, name))
 
     def volumeStartOperations(self, sr, mode):
         return urlparse.urlparse(sr).path
