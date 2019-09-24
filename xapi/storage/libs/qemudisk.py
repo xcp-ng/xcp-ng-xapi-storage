@@ -12,6 +12,7 @@ import cPickle
 # import image
 from xapi.storage import log
 from xapi.storage.libs import qmp
+from xapi.storage.libs import util
 from xapi.storage.libs.util import mkdir_p
 from xapi.storage.libs.util import var_run_prefix
 import xen.lowlevel.xs
@@ -70,16 +71,17 @@ class Qemudisk(object):
         log.debug("%s: received QMP response '%s'" % (dbg, resp))
         return resp
 
-    def _blockdev_add(self, dbg, file_path, node_name, is_snapshot=False):
-        args = {"driver": "qcow2",
-                "cache": {'direct': True, 'no-flush': True},
+    def _blockdev_add(self, dbg, path, node_name, is_snapshot=False):
+        is_block_device = util.is_block_device(path)
+        args = {'driver': 'raw' if is_block_device else 'qcow2',
+                'cache': {'direct': True, 'no-flush': True},
                 'discard': 'unmap',
-                "file": {'driver': 'file', 'aio': 'native',
-                         'filename': file_path},
-                "node-name": node_name}
-        if is_snapshot:
+                'file': {'driver': 'file', 'aio': 'native',
+                         'filename': path},
+                'node-name': node_name}
+        if not is_block_device and is_snapshot:
             args['backing'] = None
-        self._qmp_command(dbg, "blockdev-add", **args)
+        self._qmp_command(dbg, 'blockdev-add', **args)
 
     def open(self, dbg, key, f):
         # FIXME: this would not work for raw support
