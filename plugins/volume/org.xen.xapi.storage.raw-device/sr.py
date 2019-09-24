@@ -15,6 +15,9 @@ import xapi.storage.api.v5.volume
 
 @util.decorate_all_routines(util.log_exceptions_in_function)
 class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
+    """Global folder for raw devices."""
+    DEFAULT_SR_FOLDER = '/var/lib/xcp-ng-xapi-storage/raw-devices-sr'
+
     def probe(self, dbg, configuration):
         return {
             'srs': [],
@@ -37,7 +40,15 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         log.debug('{}: SR.create: config={}, sr_uuid={}'.format(
             dbg, configuration, sr_uuid))
 
-        uri = configuration['file-uri']
+        if 'file-uri' in configuration:
+            use_default_sr_folder = False
+            uri = configuration['file-uri']
+        else:
+            use_default_sr_folder = True
+            uri = '{}/{}'.format(Implementation.DEFAULT_SR_FOLDER, sr_uuid)
+            util.mkdir_p(uri)
+            configuration['file-uri'] = uri
+
         sr = urlparse.urlparse(uri).path
         log.debug('{}: SR.create: sr={}'.format(dbg, sr))
 
@@ -57,6 +68,7 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
             'unique_id': sr_uuid,
             'read_caching': read_caching,
             'keys': {},
+            'use_default_sr_folder': use_default_sr_folder,
             'devices': [x.strip() for x in configuration['devices'].split(',')]
         }
         util.update_sr_metadata(dbg, 'file://' + sr, meta)
@@ -65,7 +77,11 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
 
     def destroy(self, dbg, sr):
         self.detach(dbg, sr)
+
+        meta = util.get_sr_metadata(dbg, 'file://' + sr)
         util.remove_folder_content(sr)
+        if meta['use_default_sr_folder']:
+            os.rmdir(sr)
 
     def detach(self, dbg, sr):
         # stop GC
