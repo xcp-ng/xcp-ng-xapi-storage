@@ -53,8 +53,9 @@ class Qemudisk(object):
             except:
                 self.qmp = None
                 time.sleep(0.1)
-                raise Exception("Connection to QMP failed: {}".format(
-                    self.qmp_sock))
+        if not self.qmp:
+            raise Exception("Connection to QMP failed: {}".format(
+                self.qmp_sock))
 
     def _qmp_disconnect(self, dbg):
         try:
