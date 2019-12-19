@@ -95,6 +95,27 @@ class Callbacks(object):
     def _remove_volume_container(self, opq, name):
         pass
 
+    def get_trash_dir(self, opq):
+        return os.path.join(opq, '.trash')
+
+    def create_trash_dir(self, opq):
+        """
+        Make a trash directory to store old data like deleted volumes.
+        """
+        util.mkdir_p(self.get_trash_dir(opq))
+
+    def empty_trash(self, opq):
+        try:
+            dir = self.get_trash_dir(opq)
+            for path in os.listdir(dir):
+                os.unlink(os.path.join(dir, path))
+        except OSError as exc:
+            if exc.errno != errno.ENOENT:
+                raise
+
+    def _get_trash_volume_path(self, opq, name):
+        return os.path.join(self.get_trash_dir(opq), name)
+
     def volumeCreate(self, opq, name, size):
         log.debug("volumeCreate opq=%s name=%s size=%d" % (opq, name, size))
         vol_path = self._create_volume_container(opq, name)
@@ -109,13 +130,13 @@ class Callbacks(object):
 
     def volumeDestroy(self, opq, name):
         log.debug("volumeDestroy opq=%s name=%s" % (opq, name))
+        self.create_trash_dir(opq)
+
         vol_path = self._get_volume_path(opq, name)
         try:
-            os.unlink(vol_path)
+            os.rename(vol_path, self._get_trash_volume_path(opq, name))
         except OSError as exc:
-            if exc.errno == errno.ENOENT:
-                pass
-            else:
+            if exc.errno != errno.ENOENT:
                 raise
 
         try:

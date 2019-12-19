@@ -329,9 +329,10 @@ def remove_garbage_volumes(uri, callbacks):
 
             if len(garbage) > 0:
                 for volume in garbage:
-                    callbacks.volumeDestroy(opq, str(volume.id))
                     with callbacks.db_context(opq) as db:
                         db.delete_volume(volume.id)
+                        callbacks.volumeDestroy(opq, str(volume.id))
+        callbacks.empty_trash(opq)
 
 
 def start_task(dbg_msg, uri, callbacks, name, args):
