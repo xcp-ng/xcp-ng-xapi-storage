@@ -95,7 +95,7 @@ def create(dbg, host, name):
     all = set(filter(lambda x: x.startswith("nbd"), os.listdir("/dev")))
     for nbd in all.difference(used):
         # try:
-        call(dbg, ["nbd-client", host, "/dev/" + nbd, "-name", name])
+        call(dbg, ["nbd-client", host, "/dev/" + nbd, "-name", name, "-b", "4096"])
         return Nbd(host, name, nbd)
         # except:
         #    pass # try another one
