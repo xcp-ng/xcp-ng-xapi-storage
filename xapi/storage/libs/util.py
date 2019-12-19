@@ -1,4 +1,5 @@
 from __future__ import absolute_import
+from contextlib import contextmanager
 import errno
 import fcntl
 import importlib
@@ -6,6 +7,7 @@ import inspect
 import json
 import os
 import shutil
+import signal
 import stat
 import string
 import subprocess
@@ -394,3 +396,22 @@ def set_cgroup(pid, cgroup):
         subprocess.check_call(['/usr/bin/cgclassify', '-g', cgroup, str(pid)])
     except subprocess.CalledProcessError as e:
         log.error('Unable to set cgroup {} of {}: {}'.format(cgroup, pid, e))
+
+
+class TimeoutException(Exception):
+    pass
+
+
+@contextmanager
+def timeout(seconds):
+    def handler(signum, frame):
+        raise TimeoutException
+
+    oldHandler = signal.signal(signal.SIGALRM, handler)
+
+    try:
+        signal.alarm(seconds)
+        yield
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, oldHandler)

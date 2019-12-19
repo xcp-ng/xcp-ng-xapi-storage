@@ -351,16 +351,23 @@ def start_task(dbg_msg, uri, callbacks, name, args):
 
 
 def stop_task(dbg_msg, uri, callbacks, name):
-    with VolumeContext(callbacks, uri, 'w') as opq:
-        path = os.path.join(util.var_run_prefix(), 'sr',
-                            callbacks.getUniqueIdentifier(opq),
-                            name + '_task.pickle')
-        with open(path) as f:
-            process = pickle.load(f)
-        process.kill()
-        process.wait()
-        log.debug(dbg_msg)
-        os.unlink(path)
+    def stop():
+        with VolumeContext(callbacks, uri, 'w') as opq:
+            path = os.path.join(util.var_run_prefix(), 'sr',
+                                callbacks.getUniqueIdentifier(opq),
+                                name + '_task.pickle')
+            with open(path) as f:
+                process = pickle.load(f)
+            process.kill()
+            process.wait()
+            os.unlink(path)
+
+    try:
+        with util.timeout(5):
+            stop()
+    except util.TimeoutException:
+        log.error('Timeout reached for task: {}'.format(name))
+    log.debug(dbg_msg)
 
 
 def start_background_tasks(dbg, sr_type, uri, callbacks):
