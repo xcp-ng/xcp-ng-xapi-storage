@@ -96,6 +96,8 @@ def create(dbg, host, name):
     for nbd in all.difference(used):
         # try:
         call(dbg, ["nbd-client", host, "/dev/" + nbd, "-name", name, "-b", "4096"])
+        with open("/sys/block/" + nbd + "/queue/scheduler", "w") as fd:
+            fd.write("none")
         return Nbd(host, name, nbd)
         # except:
         #    pass # try another one
