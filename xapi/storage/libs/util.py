@@ -387,3 +387,10 @@ def daemonize():
             os.close(io_pipes)
         except OSError:
             pass
+
+
+def set_cgroup(pid, cgroup):
+    try:
+        subprocess.check_call(['/usr/bin/cgclassify', '-g', cgroup, str(pid)])
+    except subprocess.CalledProcessError as e:
+        log.error('Unable to set cgroup {} of {}: {}'.format(cgroup, pid, e))

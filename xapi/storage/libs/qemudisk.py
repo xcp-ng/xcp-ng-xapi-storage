@@ -12,6 +12,7 @@ import cPickle
 # import image
 from xapi.storage import log
 from xapi.storage.libs import qmp
+from xapi.storage.libs import util
 from xapi.storage.libs.util import mkdir_p
 from xapi.storage.libs.util import var_run_prefix
 import xen.lowlevel.xs
@@ -19,6 +20,12 @@ import xen.lowlevel.xs
 QEMU_PROC_METADATA_FILE = "meta.pickle"
 
 QEMU_DP = "/usr/lib64/qemu-dp/bin/qemu-dp"
+
+# Use two cgroups like blktap:
+# https://github.com/xapi-project/blktap/blob/1b337b56b74d6e2387cf1681db9e12c182eb4227/control/tap-ctl-spawn.c#L241-L253
+QEMU_DP_CGROUP_BLKIO = "blkio:/vm.slice/"
+QEMU_DP_CGROUP_CPU = "cpu,cpuacct:/"
+
 NBD_CLIENT = "/usr/sbin/nbd-client"
 
 IMAGE_TYPES = frozenset(['qcow2'])
@@ -207,6 +214,8 @@ def create(dbg, key):
     log.debug("spawning qemu process with qmp socket at %s" % (qmp_sock))
     cmd = [QEMU_DP, qmp_sock]
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    util.set_cgroup(p.pid, QEMU_DP_CGROUP_BLKIO)
+    util.set_cgroup(p.pid, QEMU_DP_CGROUP_CPU)
     log.debug("new qemu process has pid %d" % (p.pid))
     return Qemudisk(p.pid, qmp_sock, key, None)
 
