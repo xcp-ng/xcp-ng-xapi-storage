@@ -16,8 +16,8 @@ def watch(path):
 
 def read(path):
     cmd = ["/usr/bin/xenstore-read", path]
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
-    return proc.stdout.readline().strip()
+    data, _ = subprocess.Popen(cmd, stdout=subprocess.PIPE).communicate()
+    return data.strip()
 
 
 def found_new_qdisk(domid, devid, uuid):
