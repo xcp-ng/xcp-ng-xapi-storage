@@ -19,7 +19,7 @@ from xapi.storage.libs.libcow.volume_implementation import Implementation as \
 class Implementation(DefaultImplementation):
     def create(self, dbg, sr, name, description, size, sharable):
         devices = util.get_sr_metadata(dbg, 'file://' + sr)['devices']
-        devices = map(lambda x: os.path.realpath(x), devices)
+        devices = map(lambda x: os.path.normpath(x), devices)
 
         with VolumeContext(self.callbacks, sr, 'w') as opq:
             image_type = ImageFormat.IMAGE_RAW
@@ -38,7 +38,7 @@ class Implementation(DefaultImplementation):
                     free_device = None
                     psize = sys.maxint
                     for device in devices:
-                        if device not in used_devices:
+                        if os.path.realpath(device) not in used_devices:
                             device_size = util.get_physical_file_size(device)
                             if device_size >= size and device_size < psize:
                                 free_device = device
