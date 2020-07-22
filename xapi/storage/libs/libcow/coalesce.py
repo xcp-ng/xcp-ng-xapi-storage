@@ -380,6 +380,15 @@ def start_background_tasks(dbg, sr_type, uri, callbacks):
             start_task(dbg_msg, uri, callbacks, name, args)
 
 
+def gc_is_enabled(uri, callbacks):
+    with VolumeContext(callbacks, uri, 'w') as opq:
+        return not os.path.exists(os.path.join(
+            '/var/lib/sr',
+            callbacks.getUniqueIdentifier(opq),
+            'gc_disabled'
+        ))
+
+
 def run_coalesce(sr_type, uri):
     """
     GC/Coalesce main loop
@@ -389,7 +398,7 @@ def run_coalesce(sr_type, uri):
     callbacks = util.get_sr_callbacks(sr_type)
     this_host = callbacks.get_current_host()
 
-    while True:
+    while gc_is_enabled(uri, callbacks):
         done_work = False
         try:
             remove_garbage_volumes(uri, callbacks)
@@ -414,6 +423,7 @@ def run_coalesce(sr_type, uri):
             log.error("Exception in GC main loop {}, {}".format(
                 sys.exc_info(), traceback.format_exc()))
             raise
+    log.debug('Stopping GC daemon... Is now disabled')
 
 
 class COWCoalesce(object):
@@ -422,12 +432,23 @@ class COWCoalesce(object):
     """
     @staticmethod
     def start_gc(dbg, sr_type, uri):
-        # Get the command to run, need to replace pyc with py as __file__ will
-        # be the byte compiled file
-        dbg_msg = "{}: Starting GC sr_type={} uri={}".format(dbg, sr_type, uri)
+        # Ensure trash directory exists before starting GC.
         callbacks = util.get_sr_callbacks(sr_type)
-        args = [os.path.abspath(re.sub("pyc$", "py", __file__)), sr_type, uri]
-        start_task(dbg_msg, uri, callbacks, "gc", args)
+        with VolumeContext(callbacks, uri, 'w') as opq:
+            callbacks.create_trash_dir(opq)
+
+        if gc_is_enabled(uri, callbacks):
+            # Get the command to run, need to replace pyc with py as __file__
+            # will be the byte compiled file.
+            dbg_msg = "{}: Starting GC sr_type={} uri={}".format(
+                dbg, sr_type, uri
+            )
+            args = [
+                os.path.abspath(re.sub("pyc$", "py", __file__)), sr_type, uri
+            ]
+            start_task(dbg_msg, uri, callbacks, "gc", args)
+        else:
+            log.debug('GC is disabled, cannot start it')
         start_background_tasks(dbg, sr_type, uri, callbacks)
 
     @staticmethod
