@@ -1,6 +1,8 @@
 """
 Metadata database for virtual disks
 """
+from xapi.storage import log
+from xapi.storage.libs import util
 import sqlite3
 
 
@@ -330,8 +332,17 @@ class VolumeMetabase(object):
 
     def dump(self, path):
         with open(path, 'w') as file:
-            for line in self._conn.iterdump():
-                file.write("{}\n".format(line))
+            try:
+                import codecs
+                encoder = codecs.getincrementalencoder('utf-8')()
+                for line in self._conn.iterdump():
+                    file.write("{}\n".format(encoder.encode(line)))
+            except Exception as e:
+                log.error(
+                    'Failed to dump the metabase to {}: {}'.format(path, e)
+                )
+                util.remove_path(path, Force=True)
+                raise e
 
     def insert_vdi(self, name, description, uuid, volume_id, sharable):
         """
