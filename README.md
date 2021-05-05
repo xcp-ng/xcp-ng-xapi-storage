@@ -17,20 +17,21 @@ Datapath plugins are named by URI schemes. Internally we have the following low-
 
 ## Build & installation
 
-Install dependencies: `make3`, `make`, `python-setuptools`, `nbd`, `python-psutil`, `qemu-dp`, `systemd` and `xapi-storage`.
+Install dependencies: `cmake3`, `make`, `python-setuptools`, `nbd`, `python-psutil`, `qemu-dp`, `systemd` and `xapi-storage`.
 
 Run these commands in the project directory:
 
 ```bash
 mkdir build
 cd build
-cmake ..
+cmake3 .. -DCMAKE_INSTALL_PREFIX=/usr
 make install
 ```
 
 Do not forget to start qemuback service after installation:
 
 ```
+systemctl daemon-reload
 systemctl start qemuback.service
 ```
 
