@@ -37,3 +37,17 @@ class Raw(Path):
 
     def __str__(self):
         return "aio:" + self.path
+
+
+class Directory(Path):
+
+    """An entity on the filesystem in directory format"""
+
+    def __init__(self, path):
+        Path.__init__(self, path)
+
+    def format(self):
+        return "dir"
+
+    def __str__(self):
+        return "dir:" + self.path
