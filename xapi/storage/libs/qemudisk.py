@@ -89,24 +89,26 @@ class Qemudisk(object):
             args['backing'] = None
         self._qmp_command(dbg, "blockdev-add", **args)
 
-    def open(self, dbg, key, f):
+    def open(self, dbg, key, image):
         # FIXME: this would not work for raw support
         # assert isinstance(f, image.Cow)
         log.debug("%s: opening image %s in qemu with sock %s" %
-                  (dbg, f, self.qmp_sock))
-        self.f = f.path
-        self._qmp_connect(dbg)
-        # FIXME: we can not hardcode qcow2 here
-        # args = {"driver": "raw",
-        self._blockdev_add(dbg, self.f, LEAF_NODE_NAME)
+                  (dbg, image, self.qmp_sock))
+        self.f = image.path
 
-        # Start an NBD server exposing this blockdev
-        self._qmp_command(dbg, "nbd-server-start",
-                          addr={'type': 'unix',
-                                'data': {'path': self.nbd_unix_sock}})
-        self._qmp_command(dbg, "nbd-server-add",
-                          device=LEAF_NODE_NAME, writable=True)
-        self._qmp_disconnect(dbg)
+        if image.format() != 'dir':
+            self._qmp_connect(dbg)
+            # FIXME: we can not hardcode qcow2 here
+            # args = {"driver": "raw",
+            self._blockdev_add(dbg, self.f, LEAF_NODE_NAME)
+
+            # Start an NBD server exposing this blockdev
+            self._qmp_command(dbg, "nbd-server-start",
+                              addr={'type': 'unix',
+                                    'data': {'path': self.nbd_unix_sock}})
+            self._qmp_command(dbg, "nbd-server-add",
+                              device=LEAF_NODE_NAME, writable=True)
+            self._qmp_disconnect(dbg)
 
     def _kill_qemu(self):
         try:
@@ -117,11 +119,11 @@ class Qemudisk(object):
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
 
-    def close(self, dbg, key, f):
+    def close(self, dbg, key, image):
         # FIXME: this would not work for raw support
-        # assert isinstance(f, image.Cow)
+        # assert isinstance(image, image.Cow)
         log.debug("%s: closing image %s in qemu with sock %s" %
-                  (dbg, f, self.qmp_sock))
+                  (dbg, image, self.qmp_sock))
 
         try:
             self._qmp_connect(dbg)
@@ -139,12 +141,13 @@ class Qemudisk(object):
             except:
                 log.debug('No VBD found')
 
-            # Stop the NBD server
-            self._qmp_command(dbg, "nbd-server-stop")
+            if image.format() != 'dir':
+                # Stop the NBD server
+                self._qmp_command(dbg, "nbd-server-stop")
 
-            # Remove the block device
-            args = {"node-name": LEAF_NODE_NAME}
-            self._qmp_command(dbg, "blockdev-del", **args)
+                # Remove the block device
+                args = {"node-name": LEAF_NODE_NAME}
+                self._qmp_command(dbg, "blockdev-del", **args)
             self._qmp_disconnect(dbg)
         except Exception as e:
             log.debug('{}: failed to close qemu: {}'.format(dbg, e))

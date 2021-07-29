@@ -20,7 +20,7 @@ def read(path):
     return data.strip()
 
 
-def found_new_qdisk(domid, devid, uuid):
+def found_new_device(domid, devid, uuid, type):
     q = qmp.QEMUMonitorProtocol(
         '{}/qemu-dp/qmp_sock.{}'.format(var_run_prefix(), uuid))
 
@@ -31,7 +31,7 @@ def found_new_qdisk(domid, devid, uuid):
     params = {}
     params['domid'] = domid
     params['devid'] = devid
-    params['type'] = 'qdisk'
+    params['type'] = type
     params['blocknode'] = 'qemu_node'
     params['devicename'] = uuid
 
@@ -62,12 +62,20 @@ while True:
     path = proc.stdout.readline().strip()  # block until we get an event
     tokens = path.split('/')
 
-    if len(tokens) > 8 and tokens[5] == 'qdisk' and tokens[8] == 'qemu-params':
+    if len(tokens) <= 8:
+        continue
+
+    type = tokens[5]
+    if (type == 'qdisk' or type == '9pfs') and tokens[8] == 'qemu-params':
         domid = int(tokens[6])
         devid = int(tokens[7])
         contents = read(path)
-        print ("Found new qdisk with domid=%d devid=%d contents=%s"
-               % (domid, devid, contents))
-        (prefix, uuid) = contents.split(':')
+        print ("Found new device with domid=%d devid=%d type=%s contents=%s"
+               % (domid, devid, type, contents))
+
+        # "contents" values:
+        # - if type == qdsik: "vdi:<VDI_UUID>"
+        # - if type == 9pfs: "vdi:<VDI_UUID> <9PFS_TAG> <9PFS_SECURITY_MODEL> <9PFS_PATH>"
+        (prefix, uuid) = contents.split(' ')[0].split(':')
         if prefix == 'vdi':
-            found_new_qdisk(domid, devid, uuid)
+            found_new_device(domid, devid, uuid, type)

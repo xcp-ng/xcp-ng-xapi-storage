@@ -31,6 +31,7 @@ find_package(Python2 COMPONENTS Interpreter REQUIRED)
 # ------------------------------------------------------------------------------
 
 set(DATAPATH_PLUGINS
+  fspdisk
   qdisk
   tapdisk
 )
@@ -38,6 +39,7 @@ set(DATAPATH_PLUGINS
 set(VOLUME_PLUGINS
   org.xen.xapi.storage.ext4-ng
   org.xen.xapi.storage.filebased
+  org.xen.xapi.storage.fsp
   org.xen.xapi.storage.nfs-ng
   org.xen.xapi.storage.raw-device
 )

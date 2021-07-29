@@ -1,4 +1,5 @@
 from __future__ import absolute_import
+import os
 import sys
 import urlparse
 
@@ -14,12 +15,12 @@ vdi_enable_intellicache = False
 
 
 class COWDatapath(object):
-    @staticmethod
-    def parse_uri(uri):
+    @classmethod
+    def parse_uri(cls, uri):
         raise NotImplementedError('Override in dp specifc class')
 
-    @staticmethod
-    def attach_internal(dbg, opq, vdi, vol_path, cb):
+    @classmethod
+    def attach_internal(cls, dbg, opq, vdi, vol_path, cb):
         raise NotImplementedError('Override in dp specifc class')
 
     @classmethod
@@ -35,12 +36,14 @@ class COWDatapath(object):
             'implementations': cls.attach_internal(dbg, opq, vdi, vol_path, cb)
         }
 
-    @staticmethod
-    def activate_internal(dbg, opq, vdi, img, cb):
+    @classmethod
+    def activate_internal(cls, dbg, opq, vdi, img, cb):
         raise NotImplementedError('Override in dp specifc class')
 
     @staticmethod
     def _get_image_from_vdi(vdi, vol_path):
+        if os.path.isdir(vol_path):
+            return image.Directory(vol_path)
         if vdi.sharable or util.is_block_device(vol_path):
             return image.Raw(vol_path)
         return image.Cow(vol_path)
@@ -69,8 +72,8 @@ class COWDatapath(object):
                         log.debug('{}: activate_internal failed'.format(dbg))
                         raise
 
-    @staticmethod
-    def deactivate_internal(dbg, opq, vdi, img, cb):
+    @classmethod
+    def deactivate_internal(cls, dbg, opq, vdi, img, cb):
         raise NotImplementedError('Override in dp specifc class')
 
     @classmethod
@@ -90,8 +93,8 @@ class COWDatapath(object):
                     except:
                         log.debug('{}: deactivate_internal failed'.format(dbg))
 
-    @staticmethod
-    def detach_internal(dbg, opq, vdi, cb):
+    @classmethod
+    def detach_internal(cls, dbg, opq, vdi, cb):
         raise NotImplementedError('Override in dp specifc class')
 
     @classmethod
@@ -188,15 +191,15 @@ class TapdiskDatapath(COWDatapath):
     Datapath handler for tapdisk
     """
 
-    @staticmethod
-    def parse_uri(uri):
+    @classmethod
+    def parse_uri(cls, uri):
         # uri will be like:
         # "tapdisk://<sr-type>/<sr-mount-or-volume-group>|<volume-name>"
         mount_or_vg, name = urlparse.urlparse(uri).path.split('|')
         return ('vhd:///' + mount_or_vg, name)
 
-    @staticmethod
-    def attach_internal(dbg, opq, vdi, vol_path, cb):
+    @classmethod
+    def attach_internal(cls, dbg, opq, vdi, vol_path, cb):
         if vdi.volume.parent_id is not None and vdi_enable_intellicache:
             parent_cow_path = cb.volumeGetPath(opq, str(vdi.volume.parent_id))
             IntelliCache.attach(
@@ -220,8 +223,8 @@ class TapdiskDatapath(COWDatapath):
             }]
         ]
 
-    @staticmethod
-    def activate_internal(dbg, opq, vdi, img, cb):
+    @classmethod
+    def activate_internal(cls, dbg, opq, vdi, img, cb):
         if vdi.volume.parent_id is not None and vdi_enable_intellicache:
             parent_cow_path = cb.volumeGetPath(
                 opq,
@@ -243,8 +246,8 @@ class TapdiskDatapath(COWDatapath):
             tapdisk.save_tapdisk_metadata(
                 dbg, vdi_meta_path, tap)
 
-    @staticmethod
-    def deactivate_internal(dbg, opq, vdi, img, cb):
+    @classmethod
+    def deactivate_internal(cls, dbg, opq, vdi, img, cb):
         """
         Do the tapdisk specific deactivate
         """
@@ -258,8 +261,8 @@ class TapdiskDatapath(COWDatapath):
                 dbg, cb.get_data_metadata_path(opq, vdi.uuid))
             tap.close(dbg)
 
-    @staticmethod
-    def detach_internal(dbg, opq, vdi, cb):
+    @classmethod
+    def detach_internal(cls, dbg, opq, vdi, cb):
         if vdi.volume.parent_id is not None and vdi_enable_intellicache:
             parent_cow_path = cb.volumeGetPath(
                 opq, str(vdi.volume.parent_id))
@@ -272,21 +275,21 @@ class TapdiskDatapath(COWDatapath):
             tapdisk.forget_tapdisk_metadata(dbg, vdi_meta_path)
 
 
-class QdiskDatapath(COWDatapath):
-    """
-    Datapath handler for qdisk
-    """
-
+class QdiskAbstractDatapath(COWDatapath):
     @staticmethod
-    def parse_uri(uri):
+    def driver_type():
+        raise NotImplementedError('Override in dp specifc class')
+
+    @classmethod
+    def parse_uri(cls, uri):
         # uri will be like:
-        # "qdisk://<sr-type>/<sr-mount-or-volume-group>|<volume-name>"
+        # "<driver_type>://<sr-type>/<sr-mount-or-volume-group>|<volume-name>"
         mount_or_vg, name = urlparse.urlparse(uri).path.split('|')
-        return ('qcow2:///' + mount_or_vg, name)
+        return (cls.driver_type() + ':///' + mount_or_vg, name)
 
-    @staticmethod
-    def attach_internal(dbg, opq, vdi, vol_path, cb):
-        log.debug("attach: doing qcow2 attach")
+    @classmethod
+    def attach_internal(cls, dbg, opq, vdi, vol_path, cb):
+        log.debug('detach: doing {} attach'.format(cls.driver_type()))
         # spawn an upstream qemu as a standalone backend
         qemu_be = qemudisk.create(dbg, vdi.uuid)
         log.debug("attach: created %s" % qemu_be)
@@ -297,24 +300,36 @@ class QdiskDatapath(COWDatapath):
         log.debug("attach: saved metadata with %s, %s" %
                   (cb.get_data_metadata_path(opq, vdi.uuid), qemu_be))
 
+        if cls.driver_type() == 'qcow2':
+            return [
+                ['XenDisk', {
+                    'backend_type': 'qdisk',
+                    'params': "vdi:{}".format(vdi.uuid),
+                    'extra': {}
+                }],
+                ['Nbd', {
+                    'uri': 'nbd:unix:{}:exportname={}'.format(
+                        qemu_be.nbd_unix_sock, qemudisk.LEAF_NODE_NAME
+                    )
+                }]
+            ]
+
         return [
             ['XenDisk', {
-                'backend_type': 'qdisk',
-                'params': "vdi:{}".format(vdi.uuid),
+                'backend_type': '9pfs',
+                'params': "vdi:{} {} none {}".format(
+                    vdi.uuid, 'share_dir', vol_path
+                ),
                 'extra': {}
-            }],
-            ['Nbd', {
-                'uri': 'nbd:unix:{}:exportname={}'.format(
-                    qemu_be.nbd_unix_sock, qemudisk.LEAF_NODE_NAME
-                )
             }]
         ]
 
-    @staticmethod
-    def activate_internal(dbg, opq, vdi, img, cb):
+    @classmethod
+    def activate_internal(cls, dbg, opq, vdi, img, cb):
         log.debug(
-            "activate: doing qcow2 activate with img '%s'"
-            % (img))
+            'deactivate: doing {} activate with img \'{}\''
+            .format(cls.driver_type(), img)
+        )
         vdi_meta_path = cb.get_data_metadata_path(opq, vdi.uuid)
         qemu_be = qemudisk.load_qemudisk_metadata(
             dbg, vdi_meta_path)
@@ -323,14 +338,12 @@ class QdiskDatapath(COWDatapath):
                                         vdi_meta_path,
                                         qemu_be)
 
-    @staticmethod
-    def deactivate_internal(dbg, opq, vdi, img, cb):
-        """
-        Do the qdisk specific deactivate
-        """
+    @classmethod
+    def deactivate_internal(cls, dbg, opq, vdi, img, cb):
         log.debug(
-            "deactivate: doing qcow2 deactivate with img '%s'"
-            % (img))
+            'deactivate: doing {} deactivate with img \'{}\''
+            .format(cls.driver_type(), img)
+        )
         qemu_be = qemudisk.load_qemudisk_metadata(
             dbg, cb.get_data_metadata_path(opq, vdi.uuid))
         qemu_be.close(dbg, vdi.uuid, img)
@@ -339,9 +352,29 @@ class QdiskDatapath(COWDatapath):
                                         metadata_path,
                                         qemu_be)
 
-    @staticmethod
-    def detach_internal(dbg, opq, vdi, cb):
-        log.debug("detach: find and kill the qemu")
+    @classmethod
+    def detach_internal(cls, dbg, opq, vdi, cb):
+        log.debug('detach: doing {} detach'.format(cls.driver_type()))
         vdi_meta_path = cb.get_data_metadata_path(opq, vdi.uuid)
         qemu_be = qemudisk.load_qemudisk_metadata(dbg, vdi_meta_path)
         qemu_be.quit(dbg, vdi.uuid)
+
+
+class QdiskDatapath(QdiskAbstractDatapath):
+    """
+    Datapath handler for qdisk
+    """
+
+    @staticmethod
+    def driver_type():
+        return 'qcow2'
+
+
+class FspdiskDatapath(QdiskAbstractDatapath):
+    """
+    Datapath handler for fspdisk
+    """
+
+    @staticmethod
+    def driver_type():
+        return '9pfs'

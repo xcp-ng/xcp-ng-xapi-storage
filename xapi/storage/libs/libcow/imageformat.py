@@ -1,6 +1,7 @@
 """
 Map image formats to datapath URIs and tools
 """
+from .fsputil import FSPUtil
 from .qcow2util import QCOW2Util
 from .rawutil import RawUtil
 from .vhdutil import VHDUtil
@@ -13,6 +14,7 @@ class ImageFormat(object):
     IMAGE_RAW = 0
     IMAGE_VHD = 1
     IMAGE_QCOW2 = 2
+    IMAGE_DIRECTORY = 3
 
     _formats = None
 
@@ -37,7 +39,8 @@ class ImageFormat(object):
         return {
             cls.IMAGE_RAW: ImageFormat('tapdisk://', RawUtil),
             cls.IMAGE_VHD: ImageFormat('tapdisk://', VHDUtil),
-            cls.IMAGE_QCOW2: ImageFormat('qdisk://', QCOW2Util)
+            cls.IMAGE_QCOW2: ImageFormat('qdisk://', QCOW2Util),
+            cls.IMAGE_DIRECTORY: ImageFormat('fspdisk://', FSPUtil)
         }
 
     @classmethod
