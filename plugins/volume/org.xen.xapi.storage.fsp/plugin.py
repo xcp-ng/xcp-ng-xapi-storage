@@ -24,8 +24,6 @@ class Implementation(xapi.storage.api.v5.plugin.Plugin_skeleton):
                 "SR_ATTACH",
                 "SR_DETACH",
                 "SR_CREATE",
-                "VDI_CREATE", # TODO: Create a VDI_IMPORT feature.
-                "VDI_DESTROY",
                 "VDI_ATTACH",
                 "VDI_ATTACH_OFFLINE",
                 "VDI_DETACH",
