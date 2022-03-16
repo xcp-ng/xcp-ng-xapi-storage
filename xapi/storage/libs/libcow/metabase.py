@@ -262,8 +262,9 @@ class VolumeMetabase(object):
                     vdi_uuid       TEXT NOT NULL,
                     key            TEXT NOT NULL,
                     value          TEXT,
+                    private        BOOLEAN NOT NULL CHECK (private IN (0, 1)),
                     FOREIGN KEY(vdi_uuid) REFERENCES vdi(uuid),
-                    UNIQUE (vdi_uuid, key) ON CONFLICT REPLACE
+                    UNIQUE (vdi_uuid, key, private) ON CONFLICT REPLACE
                 )""")
         if version < 1:
             self._conn.execute("""
@@ -776,24 +777,29 @@ class VolumeMetabase(object):
             DELETE FROM refresh WHERE leaf_id=:leaf_id""",
                            {'leaf_id': leaf_id})
 
-    def get_vdi_custom_keys(self, vdi_uuid):
+    def get_vdi_custom_keys(self, vdi_uuid, private=False):
         """
         Get all custom_keys for vdi_uuid
         """
         res = self._conn.execute("""
              SELECT * FROM vdi_custom_keys
-             WHERE vdi_uuid=:vdi_uuid""", {"vdi_uuid": vdi_uuid})
+             WHERE vdi_uuid=:vdi_uuid
+               AND private=:private""",
+                                 {"vdi_uuid": vdi_uuid, "private": private})
 
         custom_keys = {}
         for row in res:
             custom_keys[str(row["key"])] = row["value"]
         return custom_keys
 
-    def get_all_vdi_custom_keys(self):
+    def get_all_vdi_custom_keys(self, private=False):
         """
         Get all VDI custom keys
         """
-        res = self._conn.execute("SELECT * FROM vdi_custom_keys")
+        res = self._conn.execute("""
+             SELECT * FROM vdi_custom_keys
+             WHERE private=:private""", {"private": private})
+
         custom_keys = {}
         for row in res:
             if row["vdi_uuid"] not in custom_keys:
@@ -801,26 +807,29 @@ class VolumeMetabase(object):
             custom_keys[row["vdi_uuid"]][row["key"]] = row["value"]
         return custom_keys
 
-    def set_vdi_custom_key(self, vdi_uuid, custom_key, value):
+    def set_vdi_custom_key(self, vdi_uuid, custom_key, value, private=False):
         """
         Update custom_key with value for vdi_uuid
         """
         self._conn.execute("""
-             INSERT OR REPLACE INTO vdi_custom_keys(vdi_uuid, key, value)
-             VALUES(:vdi_uuid, :key, :value)""",
+             INSERT OR REPLACE INTO vdi_custom_keys(vdi_uuid, key, value, private)
+             VALUES(:vdi_uuid, :key, :value, :private)""",
                            {"vdi_uuid": vdi_uuid,
                             "key": custom_key,
-                            "value": value})
+                            "value": value,
+                            "private": private})
 
-    def delete_vdi_custom_key(self, vdi_uuid, custom_key):
+    def delete_vdi_custom_key(self, vdi_uuid, custom_key, private=False):
         """
         Delete the specified custom_key for the specified vdi_uuid
         """
         self._conn.execute("""
             DELETE from vdi_custom_keys WHERE vdi_uuid=:vdi_uuid
-            AND key=:key""",
+            AND key=:key
+            AND private=:private""",
                            {"vdi_uuid": vdi_uuid,
-                            "key": custom_key})
+                            "key": custom_key,
+                            "private": private})
 
     def get_vdi_chain_height(self, vdi_uuid):
         """
