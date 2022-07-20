@@ -57,6 +57,24 @@ class Implementation(DefaultImplementation):
             'keys': {}
         }
 
+    def destroy(self, dbg, sr, key):
+        cb = self.callbacks
+        with VolumeContext(cb, sr, 'w') as opq:
+            with PollLock(opq, 'gl', cb, 0.5):
+                with cb.db_context(opq) as db:
+                    vdi = db.get_vdi_by_id(key)
+                    # try to destroy first
+                    path = os.path.basename(sr) + '/'+ str(vdi.volume.id)
+                    cmd = [
+                        'zfs', 'destroy',
+                        path
+                    ]
+                    call(dbg, cmd)
+                    db.delete_vdi(key)
+                with cb.db_context(opq) as db:
+                    cb.volumeDestroy(opq, str(vdi.volume.id))
+                    db.delete_volume(vdi.volume.id)
+
     def stat(self, dbg, sr, key):
         image_format = None
         cb = self.callbacks
