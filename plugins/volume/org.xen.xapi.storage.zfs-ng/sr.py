@@ -71,8 +71,18 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         return configuration
 
     def destroy(self, dbg, sr):
-        # TODO: create destroy
-        util.remove_folder_content(sr)
+        name = os.path.basename(sr)
+        cmd = [
+            ZPOOL_BIN, 'destroy',
+            name
+        ]
+
+        log.debug('cmd={}'.format(cmd))
+
+        try:
+            call(dbg, cmd)
+        except:
+            log.debug('error destroying the pool the pool')
 
     def detach(self, dbg, sr):
         # Nothing todo.
