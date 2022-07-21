@@ -84,13 +84,18 @@ class Implementation(DefaultImplementation):
                 image_format = ImageFormat.get_format(vdi.image_type)
                 # TODO: handle this better
                 #_vdi_sanitize(vdi, opq, db, cb)
-                path = os.path.basename(sr) + '/'+ vdi.name
+                path = os.path.basename(sr) + '/'+ str(vdi.volume.id)
                 custom_keys = db.get_vdi_custom_keys(vdi.uuid)
                 vdi_uuid = vdi.uuid
 
-            # psize = cb.volumeGetPhysSize(opq, str(vdi.volume.id))
-            psize = 0
-            vdi_uri = cb.getVolumeUriPrefix(opq) + vdi_uuid
+        cmd = [
+            ZFS_BIN, 'get',
+            '-o', 'value', '-Hp', 'used,avail',
+            path
+        ]
+        out = call(dbg, cmd).splitlines()
+        psize = int(out[0]) + int(out[1])
+        vdi_uri = cb.getVolumeUriPrefix(opq) + vdi_uuid
 
         return {
             'uuid': vdi.uuid,
