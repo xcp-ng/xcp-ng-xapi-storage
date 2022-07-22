@@ -9,6 +9,7 @@ from xapi.storage import log
 from xapi.storage.libs import util
 from xapi.storage.common import call
 from xapi.storage.libs.libcow.volume import COWVolume
+from xapi.storage.libs.libcow.callbacks import VolumeContext
 import xapi.storage.api.v5.volume
 
 import importlib
@@ -89,9 +90,46 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         pass
 
     def ls(self, dbg, sr):
-        # TODO: reimplement ls
-        return COWVolume.ls(
-            dbg, sr, importlib.import_module('zfs-ng').Callbacks())
+        results = []
+        cb = importlib.import_module('zfs-ng').Callbacks()
+        with VolumeContext(cb, sr, 'r') as opq:
+            with cb.db_context(opq) as db:
+                vdis = db.get_all_vdis()
+                all_custom_keys = db.get_all_vdi_custom_keys()
+
+            for vdi in vdis:
+                # TODO: handle this better
+                # _vdi_sanitize(vdi, opq, db, cb)
+
+                image_format = ImageFormat.get_format(vdi.image_type)
+                path = os.path.basename(sr) + '/'+ str(vdi.volume.id)
+                cmd = [
+                    ZFS_BIN, 'get',
+                    '-o', 'value', '-Hp', 'used,avail',
+                    path
+                ]
+                out = call(dbg, cmd).splitlines()
+                psize = int(out[0]) + int(out[1])
+
+                vdi_uri = cb.getVolumeUriPrefix(opq) + vdi.uuid
+                custom_keys = {}
+                if vdi.uuid in all_custom_keys:
+                    custom_keys = all_custom_keys[vdi.uuid]
+
+                results.append({
+                    'uuid': vdi.uuid,
+                    'key': vdi.uuid,
+                    'name': vdi.name,
+                    'description': vdi.description,
+                    'read_write': True,
+                    'virtual_size': vdi.volume.vsize,
+                    'physical_utilisation': psize,
+                    'uri': [image_format.uri_prefix + vdi_uri],
+                    'keys': custom_keys,
+                    'sharable': bool(vdi.sharable)
+                })
+
+        return results
 
     def set_description(self, dbg, sr, new_description):
         util.update_sr_metadata(
