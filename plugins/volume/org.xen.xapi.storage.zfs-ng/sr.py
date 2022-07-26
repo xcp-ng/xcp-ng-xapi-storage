@@ -8,6 +8,7 @@ import urlparse
 from xapi.storage import log
 from xapi.storage.libs import util
 from xapi.storage.common import call
+from xapi.storage.libs.libcow.imageformat import ImageFormat
 from xapi.storage.libs.libcow.volume import COWVolume
 from xapi.storage.libs.libcow.callbacks import VolumeContext
 import xapi.storage.api.v5.volume
@@ -102,14 +103,21 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
                 # _vdi_sanitize(vdi, opq, db, cb)
 
                 image_format = ImageFormat.get_format(vdi.image_type)
-                path = os.path.basename(sr) + '/'+ str(vdi.volume.id)
+                is_snapshot = bool(vdi.volume.snap)
+                if is_snapshot:
+                    path = os.path.basename(sr) + '/'+ str(vdi.volume.parent_id) + '@' + str(vdi.volume.id)
+                else:
+                    path = os.path.basename(sr) + '/'+ str(vdi.volume.id)
                 cmd = [
                     ZFS_BIN, 'get',
                     '-o', 'value', '-Hp', 'used,avail',
                     path
                 ]
                 out = call(dbg, cmd).splitlines()
-                psize = int(out[0]) + int(out[1])
+                if is_snapshot:
+                    psize = int(out[0])
+                else:
+                    psize = int(out[0]) + int(out[1])
 
                 vdi_uri = cb.getVolumeUriPrefix(opq) + vdi.uuid
                 custom_keys = {}
@@ -121,7 +129,7 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
                     'key': vdi.uuid,
                     'name': vdi.name,
                     'description': vdi.description,
-                    'read_write': True,
+                    'read_write': not is_snapshot,
                     'virtual_size': vdi.volume.vsize,
                     'physical_utilisation': psize,
                     'uri': [image_format.uri_prefix + vdi_uri],

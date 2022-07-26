@@ -64,7 +64,11 @@ class Implementation(DefaultImplementation):
                 with cb.db_context(opq) as db:
                     vdi = db.get_vdi_by_id(key)
                     # try to destroy first
-                    path = os.path.basename(sr) + '/'+ str(vdi.volume.id)
+                    is_snapshot = bool(vdi.volume.snap)
+                    if is_snapshot:
+                        path = os.path.basename(sr) + '/'+ str(vdi.volume.parent_id) + '@' + str(vdi.volume.id)
+                    else:
+                        path = os.path.basename(sr) + '/'+ str(vdi.volume.id)
                     cmd = [
                         'zfs', 'destroy',
                         path
@@ -84,7 +88,11 @@ class Implementation(DefaultImplementation):
                 image_format = ImageFormat.get_format(vdi.image_type)
                 # TODO: handle this better
                 #_vdi_sanitize(vdi, opq, db, cb)
-                path = os.path.basename(sr) + '/'+ str(vdi.volume.id)
+                is_snapshot = bool(vdi.volume.snap)
+                if is_snapshot:
+                    path = os.path.basename(sr) + '/'+ str(vdi.volume.parent_id) + '@' + str(vdi.volume.id)
+                else:
+                    path = os.path.basename(sr) + '/'+ str(vdi.volume.id)
                 custom_keys = db.get_vdi_custom_keys(vdi.uuid)
                 vdi_uuid = vdi.uuid
 
@@ -94,19 +102,63 @@ class Implementation(DefaultImplementation):
             path
         ]
         out = call(dbg, cmd).splitlines()
-        psize = int(out[0]) + int(out[1])
+        if is_snapshot:
+            psize = int(out[0])
+        else:
+            psize = int(out[0]) + int(out[1])
         vdi_uri = cb.getVolumeUriPrefix(opq) + vdi_uuid
-
         return {
             'uuid': vdi.uuid,
             'key': vdi.uuid,
             'name': vdi.name,
             'description': vdi.description,
-            'read_write': True,
+            'read_write': not bool(vdi.volume.snap),
             'virtual_size': vdi.volume.vsize,
             'physical_utilisation': psize,
             'uri': [image_format.uri_prefix + vdi_uri],
             'keys': custom_keys,
+            'sharable': False
+        }
+
+    def snapshot(self, dbg, sr, key):
+        snap_uuid = str(uuid.uuid4())
+        cb = self.callbacks
+        with VolumeContext(cb, sr, 'w') as opq:
+            result_volume_id = ''
+            with PollLock(opq, 'gl', cb, 0.5):
+                with cb.db_context(opq) as db:
+                    vdi = db.get_vdi_by_id(key)
+                    image_format = ImageFormat.get_format(vdi.image_type)
+                    image_utils = image_format.image_utils
+
+                    vol_id = (vdi.volume.id if vdi.volume.snap == 0 else
+                              vdi.volume.parent_id)
+
+                    vol_path = cb.volumeGetPath(opq, str(vol_id))
+                    snap_volume = db.insert_child_volume(vol_id,
+                                                         vdi.volume.vsize)
+                    db.set_volume_as_snapshot(snap_volume.id)
+                    db.insert_vdi(vdi.name, vdi.description,
+                                  snap_uuid, snap_volume.id, False)
+                    result_volume_id = str(snap_volume.id)
+                    path = os.path.basename(sr) + '/'+ str(vdi.volume.id) + '@' + str(snap_volume.id)
+                    cmd = [
+                        ZFS_BIN, 'snapshot',
+                        path
+                    ]
+                    call(dbg, cmd)
+        psize = 0
+        snap_uri = cb.getVolumeUriPrefix(opq) + snap_uuid
+        return {
+            'uuid': snap_uuid,
+            'key': snap_uuid,
+            'name': result_volume_id,
+            'description': vdi.description,
+            'read_write': False,
+            'virtual_size': vdi.volume.vsize,
+            'physical_utilisation': psize,
+            'uri': [image_format.uri_prefix + snap_uri],
+            'keys': {},
             'sharable': False
         }
 
@@ -127,6 +179,8 @@ def call_volume_command():
         cmd.set_description()
     elif base == "Volume.set_name":
         cmd.set_name()
+    elif base == "Volume.snapshot":
+        cmd.snapshot()
     elif base == "Volume.stat":
         cmd.stat()
     elif base == "Volume.unset":
