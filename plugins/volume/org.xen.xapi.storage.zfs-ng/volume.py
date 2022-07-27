@@ -69,11 +69,20 @@ class Implementation(DefaultImplementation):
                         path = os.path.basename(sr) + '/'+ str(vdi.volume.parent_id) + '@' + str(vdi.volume.id)
                     else:
                         path = os.path.basename(sr) + '/'+ str(vdi.volume.id)
+                    # if this is an snapshot, this removes all clones and child snapshots
                     cmd = [
-                        'zfs', 'destroy',
+                        'zfs', 'destroy', '-r',
                         path
                     ]
                     call(dbg, cmd)
+                    # try to remove snapshot if it is a clone
+                    path_snap = os.path.basename(sr) + '/'+ str(vdi.volume.parent_id) + '@' + str(vdi.volume.id)
+                    cmd = [
+                        'zfs', 'destroy', '-r',
+                        path_snap
+                    ]
+                    # if this is not a clone this fails
+                    call(dbg, cmd, False)
                     db.delete_vdi(key)
                 with cb.db_context(opq) as db:
                     cb.volumeDestroy(opq, str(vdi.volume.id))
@@ -162,6 +171,53 @@ class Implementation(DefaultImplementation):
             'sharable': False
         }
 
+    def clone(self, dbg, sr, key):
+        snap_uuid = str(uuid.uuid4())
+        cb = self.callbacks
+        with VolumeContext(cb, sr, 'w') as opq:
+            result_volume_id = ''
+            with PollLock(opq, 'gl', cb, 0.5):
+                with cb.db_context(opq) as db:
+                    vdi = db.get_vdi_by_id(key)
+                    image_format = ImageFormat.get_format(vdi.image_type)
+                    image_utils = image_format.image_utils
+
+                    vol_id = (vdi.volume.id if vdi.volume.snap == 0 else
+                              vdi.volume.parent_id)
+
+                    vol_path = cb.volumeGetPath(opq, str(vol_id))
+                    snap_volume = db.insert_child_volume(vol_id,
+                                                         vdi.volume.vsize)
+                    db.insert_vdi(vdi.name, vdi.description,
+                                  snap_uuid, snap_volume.id, False)
+                    result_volume_id = str(snap_volume.id)
+                    snap_path = os.path.basename(sr) + '/'+ str(vdi.volume.id) + '@' + str(snap_volume.id)
+                    cmd = [
+                        ZFS_BIN, 'snapshot',
+                        snap_path
+                    ]
+                    call(dbg, cmd)
+                    clone_path = os.path.basename(sr) + '/'+ str(snap_volume.id)
+                    cmd = [
+                        ZFS_BIN, 'clone',
+                        snap_path, clone_path
+                    ]
+                    call(dbg, cmd)
+        psize = 0
+        snap_uri = cb.getVolumeUriPrefix(opq) + snap_uuid
+        return {
+            'uuid': snap_uuid,
+            'key': snap_uuid,
+            'name': result_volume_id,
+            'description': vdi.description,
+            'read_write': True,
+            'virtual_size': vdi.volume.vsize,
+            'physical_utilisation': psize,
+            'uri': [image_format.uri_prefix + snap_uri],
+            'keys': {},
+            'sharable': False
+        }
+
 def call_volume_command():
     """Parse the arguments and call the required command"""
     log.log_call_argv()
@@ -171,6 +227,8 @@ def call_volume_command():
     base = os.path.basename(sys.argv[0])
     if base == "Volume.create":
         cmd.create()
+    elif base == "Volume.clone":
+        cmd.clone()
     elif base == "Volume.destroy":
         cmd.destroy()
     elif base == "Volume.set":
