@@ -69,16 +69,15 @@ class Implementation(DefaultImplementation):
                         path = os.path.basename(sr) + '/'+ str(vdi.volume.parent_id) + '@' + str(vdi.volume.id)
                     else:
                         path = os.path.basename(sr) + '/'+ str(vdi.volume.id)
-                    # if this is an snapshot, this removes all clones and child snapshots
                     cmd = [
-                        'zfs', 'destroy', '-r',
+                        'zfs', 'destroy',
                         path
                     ]
                     call(dbg, cmd)
-                    # try to remove snapshot if it is a clone
+                    # try to remove its snapshot if it is a clone
                     path_snap = os.path.basename(sr) + '/'+ str(vdi.volume.parent_id) + '@' + str(vdi.volume.id)
                     cmd = [
-                        'zfs', 'destroy', '-r',
+                        'zfs', 'destroy',
                         path_snap
                     ]
                     # if this is not a clone this fails
