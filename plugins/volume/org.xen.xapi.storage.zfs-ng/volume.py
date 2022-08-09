@@ -63,7 +63,6 @@ class Implementation(DefaultImplementation):
             with PollLock(opq, 'gl', cb, 0.5):
                 with cb.db_context(opq) as db:
                     vdi = db.get_vdi_by_id(key)
-                    # try to destroy first
                     is_snapshot = bool(vdi.volume.snap)
                     if is_snapshot:
                         path = os.path.basename(sr) + '/'+ str(vdi.volume.parent_id) + '@' + str(vdi.volume.id)
@@ -73,15 +72,15 @@ class Implementation(DefaultImplementation):
                         'zfs', 'destroy',
                         path
                     ]
-                    call(dbg, cmd)
-                    # try to remove its snapshot if it is a clone
-                    path_snap = os.path.basename(sr) + '/'+ str(vdi.volume.parent_id) + '@' + str(vdi.volume.id)
-                    cmd = [
-                        'zfs', 'destroy',
-                        path_snap
-                    ]
-                    # if this is not a clone this fails
-                    call(dbg, cmd, False)
+                    log.error('cmd= {}'.format(cmd))
+                    # NOTE: by returning like this, xapi will think that the cmd successes
+                    # and remove the vdi from its db.
+                    # The revert-from-snap will never happen if this fails.
+                    try:
+                        call(dbg, cmd)
+                    except Exception as e:
+                        log.error('Command has failed, maybe it is because it still has children!')
+                        return
                     db.delete_vdi(key)
                 with cb.db_context(opq) as db:
                     cb.volumeDestroy(opq, str(vdi.volume.id))
@@ -170,6 +169,8 @@ class Implementation(DefaultImplementation):
             'sharable': False
         }
 
+    # clone only works on snapshots
+    # fails otherwise
     def clone(self, dbg, sr, key):
         snap_uuid = str(uuid.uuid4())
         cb = self.callbacks
@@ -178,29 +179,23 @@ class Implementation(DefaultImplementation):
             with PollLock(opq, 'gl', cb, 0.5):
                 with cb.db_context(opq) as db:
                     vdi = db.get_vdi_by_id(key)
+                    if vdi.volume.snap == 0:
+                        log.error('Only snapshots can be cloned!')
+                        raise
                     image_format = ImageFormat.get_format(vdi.image_type)
                     image_utils = image_format.image_utils
-
-                    vol_id = (vdi.volume.id if vdi.volume.snap == 0 else
-                              vdi.volume.parent_id)
-
-                    vol_path = cb.volumeGetPath(opq, str(vol_id))
-                    snap_volume = db.insert_child_volume(vol_id,
-                                                         vdi.volume.vsize)
-                    db.insert_vdi(vdi.name, vdi.description,
-                                  snap_uuid, snap_volume.id, False)
-                    result_volume_id = str(snap_volume.id)
-                    snap_path = os.path.basename(sr) + '/'+ str(vdi.volume.id) + '@' + str(snap_volume.id)
-                    cmd = [
-                        ZFS_BIN, 'snapshot',
-                        snap_path
-                    ]
-                    call(dbg, cmd)
-                    clone_path = os.path.basename(sr) + '/'+ str(snap_volume.id)
+                    parent_vol_id = vdi.volume.parent_id
+                    cloned_volume = db.insert_new_volume(vdi.volume.vsize, vdi.image_type)
+                    db.insert_vdi(
+                        vdi.name, vdi.description, snap_uuid, cloned_volume.id, False)
+                    result_volume_id = str(cloned_volume.id)
+                    snap_path = os.path.basename(sr) + '/'+ str(parent_vol_id) + '@' + str(vdi.volume.id)
+                    clone_path = os.path.basename(sr) + '/'+ result_volume_id
                     cmd = [
                         ZFS_BIN, 'clone',
                         snap_path, clone_path
                     ]
+                    log.error('cmd: {}'.format(cmd))
                     call(dbg, cmd)
         psize = 0
         snap_uri = cb.getVolumeUriPrefix(opq) + snap_uuid
