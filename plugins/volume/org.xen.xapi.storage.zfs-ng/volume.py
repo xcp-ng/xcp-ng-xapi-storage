@@ -197,6 +197,29 @@ class Implementation(DefaultImplementation):
                     ]
                     log.error('cmd: {}'.format(cmd))
                     call(dbg, cmd)
+                    # promote clone
+                    cmd = [
+                        ZFS_BIN, 'promote',
+                        clone_path
+                    ]
+                    log.error('cmd: {}'.format(cmd))
+                    call(dbg, cmd)
+                    children = db.get_children(parent_vol_id)
+                    for child in children:
+                         db.update_volume_parent(child.id, cloned_volume.id)
+                    parent_vdi = db.get_vdi_for_volume(parent_vol_id)
+                    # remove parent from db
+                    db.delete_vdi(parent_vdi.uuid)
+                    cb.volumeDestroy(opq, str(parent_vdi.volume.id))
+                    db.delete_volume(parent_vdi.volume.id)
+                    # destroy parent
+                    parent_path = os.path.basename(sr) + '/'+ str(parent_vol_id)
+                    cmd = [
+                        ZFS_BIN, 'destroy',
+                        parent_path
+                    ]
+                    log.error('cmd: {}'.format(cmd))
+                    call(dbg, cmd)
         psize = 0
         snap_uri = cb.getVolumeUriPrefix(opq) + snap_uuid
         return {
