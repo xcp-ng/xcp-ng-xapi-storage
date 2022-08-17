@@ -66,6 +66,13 @@ class Implementation(DefaultImplementation):
                     is_snapshot = bool(vdi.volume.snap)
                     if is_snapshot:
                         path = os.path.basename(sr) + '/'+ str(vdi.volume.parent_id) + '@' + str(vdi.volume.id)
+                        path_clone = os.path.basename(sr) + '/'+ str(vdi.volume.id)
+                        # destroy clone first
+                        cmd = [
+                            'zfs', 'destroy',
+                            path_clone
+                        ]
+                        call(dbg, cmd)
                     else:
                         path = os.path.basename(sr) + '/'+ str(vdi.volume.id)
                     cmd = [
@@ -153,6 +160,13 @@ class Implementation(DefaultImplementation):
                         ZFS_BIN, 'snapshot',
                         path
                     ]
+                    log.error('snapshot: {}'.format(cmd))
+                    call(dbg, cmd)
+                    cmd = [
+                        ZFS_BIN, 'clone',
+                        path, os.path.basename(sr) + '/' + str(snap_volume.id)
+                    ]
+                    log.error('clone: {}'.format(cmd))
                     call(dbg, cmd)
         psize = 0
         snap_uri = cb.getVolumeUriPrefix(opq) + snap_uuid
