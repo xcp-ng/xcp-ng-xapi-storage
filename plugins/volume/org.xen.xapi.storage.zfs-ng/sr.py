@@ -44,7 +44,7 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         # zfs mount the new fs in root by using the name
         sr = '/' + name
         cmd = [
-            ZPOOL_BIN, 'create', '-f'
+            ZPOOL_BIN, 'create', '-f',
             name, dev
         ]
 
