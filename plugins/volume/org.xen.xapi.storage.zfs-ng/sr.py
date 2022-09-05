@@ -27,7 +27,7 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         }
 
     def attach(self, dbg, configuration):
-        uri = configuration['file-uri']
+        uri = configuration['mountpoint']
         log.debug('{}: SR.attach: config={}, uri={}'.format(
             dbg, configuration, uri))
 
@@ -38,37 +38,70 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         log.debug('{}: SR.create: config={}, sr_uuid={}'.format(
             dbg, configuration, sr_uuid))
 
-        uri = configuration['file-uri']
-        dev = urlparse.urlparse(uri).path
+        if 'devices' not in configuration:
+            log.error('devices parameter is missed')
+            raise
+        devs = configuration['devices'].split(',')
 
-        # zfs mount the new fs in root by using the name
-        sr = '/' + name
+        mountpoint = '/' + name
+        if 'mountpoint' in configuration:
+            mountpoint = configuration['mountpoint']
+
+        compression = False
+        if 'compression' in configuration:
+            if configuration['compression'] in [
+                    'true', 't', 'on', '1', 'yes']:
+                compression = True
+
         cmd = [
             ZPOOL_BIN, 'create', '-f',
-            name, dev
+            name, '-m', mountpoint
         ]
+
+        if 'mode' in configuration:
+            if configuration['mode'] not in [
+                    'N', 'M', 'R']:
+                log.error('mode can only be N(default), M(mirror) or R(raidz)')
+                raise
+            if configuration['mode'] in ['M']:
+                if len(devs) < 2:
+                    log.error('mirror mode requires at least two devices')
+                    raise
+                cmd.append('mirror')
+            if configuration['mode'] in ['R']:
+                if len(devs) < 2:
+                    log.error('raidz mode requires at least two devices')
+                    raise
+                cmd.append('raidz')
+
+        cmd.extend(devs)
 
         try:
             call(dbg, cmd)
         except:
-            log.debug('error creating the pool')
+            log.error('error creating the pool')
+            raise
 
-        log.debug('{}: SR.create: sr={}'.format(dbg, sr))
+        if compression:
+            cmd = [
+                ZFS_BIN, 'set', 'compression=on', name
+            ]
+            call(dbg, cmd)
 
-        # Create the metadata database
-        importlib.import_module('zfs-ng').Callbacks().create_database(sr)
+        log.debug('{}: SR.create: sr={}'.format(dbg, mountpoint))
+
+        importlib.import_module('zfs-ng').Callbacks().create_database(mountpoint)
 
         meta = {
             'name': name,
             'description': description,
-            'uri': uri,
+            'uri': mountpoint,
+            'mountpoint': mountpoint,
             'unique_id': sr_uuid,
             'read_caching': False,
             'keys': {}
         }
-        util.update_sr_metadata(dbg, 'file://' + sr, meta)
-
-        configuration['file-uri'] = sr
+        util.update_sr_metadata(dbg, 'file://' + mountpoint, meta)
 
         return configuration
 
