@@ -65,7 +65,7 @@ class Implementation(DefaultImplementation):
                     vdi = db.get_vdi_by_id(key)
                     is_snapshot = bool(vdi.volume.snap)
                     if is_snapshot:
-                        path = os.path.basename(sr) + '/'+ str(vdi.volume.parent_id) + '@' + str(vdi.volume.id)
+                        path = os.path.basename(sr) + '/'+ str(vdi.volume.id) + '@' + str(vdi.volume.id)
                         path_clone = os.path.basename(sr) + '/'+ str(vdi.volume.id)
                         # destroy clone first
                         cmd = [
@@ -80,14 +80,7 @@ class Implementation(DefaultImplementation):
                         path
                     ]
                     log.error('cmd= {}'.format(cmd))
-                    # NOTE: by returning like this, xapi will think that the cmd successes
-                    # and remove the vdi from its db.
-                    # The revert-from-snap will never happen if this fails.
-                    try:
-                        call(dbg, cmd)
-                    except Exception as e:
-                        log.error('Command has failed, maybe it is because it still has children!')
-                        return
+                    call(dbg, cmd)
                     db.delete_vdi(key)
                 with cb.db_context(opq) as db:
                     cb.volumeDestroy(opq, str(vdi.volume.id))
@@ -168,6 +161,12 @@ class Implementation(DefaultImplementation):
                     ]
                     log.error('clone: {}'.format(cmd))
                     call(dbg, cmd)
+                    cmd = [
+                        ZFS_BIN, 'promote',
+                        os.path.basename(sr) + '/' + str(snap_volume.id)
+                    ]
+                    log.error('promote clone: {}'.format(cmd))
+                    call(dbg, cmd)
         psize = 0
         snap_uri = cb.getVolumeUriPrefix(opq) + snap_uuid
         return {
@@ -198,39 +197,15 @@ class Implementation(DefaultImplementation):
                         raise
                     image_format = ImageFormat.get_format(vdi.image_type)
                     image_utils = image_format.image_utils
-                    parent_vol_id = vdi.volume.parent_id
                     cloned_volume = db.insert_new_volume(vdi.volume.vsize, vdi.image_type)
                     db.insert_vdi(
                         vdi.name, vdi.description, snap_uuid, cloned_volume.id, False)
                     result_volume_id = str(cloned_volume.id)
-                    snap_path = os.path.basename(sr) + '/'+ str(parent_vol_id) + '@' + str(vdi.volume.id)
+                    snap_path = os.path.basename(sr) + '/'+ str(vdi.volume.id) + '@' + str(vdi.volume.id)
                     clone_path = os.path.basename(sr) + '/'+ result_volume_id
                     cmd = [
                         ZFS_BIN, 'clone',
                         snap_path, clone_path
-                    ]
-                    log.error('cmd: {}'.format(cmd))
-                    call(dbg, cmd)
-                    # promote clone
-                    cmd = [
-                        ZFS_BIN, 'promote',
-                        clone_path
-                    ]
-                    log.error('cmd: {}'.format(cmd))
-                    call(dbg, cmd)
-                    children = db.get_children(parent_vol_id)
-                    for child in children:
-                         db.update_volume_parent(child.id, cloned_volume.id)
-                    parent_vdi = db.get_vdi_for_volume(parent_vol_id)
-                    # remove parent from db
-                    db.delete_vdi(parent_vdi.uuid)
-                    cb.volumeDestroy(opq, str(parent_vdi.volume.id))
-                    db.delete_volume(parent_vdi.volume.id)
-                    # destroy parent
-                    parent_path = os.path.basename(sr) + '/'+ str(parent_vol_id)
-                    cmd = [
-                        ZFS_BIN, 'destroy',
-                        parent_path
                     ]
                     log.error('cmd: {}'.format(cmd))
                     call(dbg, cmd)
