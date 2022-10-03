@@ -97,7 +97,7 @@ class Implementation(DefaultImplementation):
                 #_vdi_sanitize(vdi, opq, db, cb)
                 is_snapshot = bool(vdi.volume.snap)
                 if is_snapshot:
-                    path = os.path.basename(sr) + '/'+ str(vdi.volume.parent_id) + '@' + str(vdi.volume.id)
+                    path = os.path.basename(sr) + '/'+ str(vdi.volume.id) + '@' + str(vdi.volume.id)
                 else:
                     path = os.path.basename(sr) + '/'+ str(vdi.volume.id)
                 custom_keys = db.get_vdi_custom_keys(vdi.uuid)
