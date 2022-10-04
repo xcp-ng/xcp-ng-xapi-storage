@@ -59,20 +59,45 @@ class Implementation(DefaultImplementation):
 
     def destroy(self, dbg, sr, key):
         cb = self.callbacks
+        need_destroy_clone = False
         with VolumeContext(cb, sr, 'w') as opq:
             with PollLock(opq, 'gl', cb, 0.5):
                 with cb.db_context(opq) as db:
                     vdi = db.get_vdi_by_id(key)
                     is_snapshot = bool(vdi.volume.snap)
                     if is_snapshot:
-                        path = os.path.basename(sr) + '/'+ str(vdi.volume.id) + '@' + str(vdi.volume.id)
-                        path_clone = os.path.basename(sr) + '/'+ str(vdi.volume.id)
-                        # destroy clone first
-                        cmd = [
-                            'zfs', 'destroy',
-                            path_clone
-                        ]
-                        call(dbg, cmd)
+                        children = db.get_children(vdi.volume.id)
+                        if children:
+                            for child in children:
+                                if child.snap == 0:
+                                    log.error('Current snapshot is in-use, we cannot destroy it')
+                                    raise
+                            child_vol = None
+                            # select any snapshot children to promote
+                            for child in children:
+                                if child.snap == 1:
+                                    child_vol = child
+                                    break
+                            path_clone = os.path.basename(sr) + '/'+ str(child_vol.id)
+                            cmd = [
+                                'zfs', 'promote',
+                                path_clone
+                            ]
+                            log.error('cmd= {}'.format(cmd))
+                            call(dbg, cmd)
+                            db.update_volume_parent(child_vol.id, vdi.volume.parent_id)
+                            # snapshot path changes after promotion
+                            path = os.path.basename(sr) + '/'+ str(child_vol.id) + '@' + str(vdi.volume.id)
+                            path_clone = os.path.basename(sr) + '/'+ str(vdi.volume.id)
+                            cmd = [
+                                'zfs', 'destroy',
+                                path_clone
+                            ]
+                            call(dbg, cmd)
+                        else:
+                            need_destroy_clone = True
+                            path = os.path.basename(sr) + '/'+ str(vdi.volume.id) + '@' + str(vdi.volume.id)
+                            path_clone = os.path.basename(sr) + '/'+ str(vdi.volume.id)
                     else:
                         path = os.path.basename(sr) + '/'+ str(vdi.volume.id)
                     cmd = [
@@ -81,6 +106,12 @@ class Implementation(DefaultImplementation):
                     ]
                     log.error('cmd= {}'.format(cmd))
                     call(dbg, cmd)
+                    if is_snapshot and need_destroy_clone:
+                        cmd = [
+                            'zfs', 'destroy',
+                            path_clone
+                        ]
+                        call(dbg, cmd)
                     db.delete_vdi(key)
                 with cb.db_context(opq) as db:
                     cb.volumeDestroy(opq, str(vdi.volume.id))
@@ -94,7 +125,7 @@ class Implementation(DefaultImplementation):
                 vdi = db.get_vdi_by_id(key)
                 image_format = ImageFormat.get_format(vdi.image_type)
                 # TODO: handle this better
-                #_vdi_sanitize(vdi, opq, db, cb)
+                # _vdi_sanitize(vdi, opq, db, cb)
                 is_snapshot = bool(vdi.volume.snap)
                 if is_snapshot:
                     path = os.path.basename(sr) + '/'+ str(vdi.volume.id) + '@' + str(vdi.volume.id)
@@ -142,11 +173,19 @@ class Implementation(DefaultImplementation):
                               vdi.volume.parent_id)
 
                     vol_path = cb.volumeGetPath(opq, str(vol_id))
-                    snap_volume = db.insert_child_volume(vol_id,
+
+                    # snapshot inherits volume's parent
+                    if vdi.volume.parent_id == None:
+                        snap_volume = db.insert_new_volume(vdi.volume.vsize, vdi.image_type)
+                    else:
+                        snap_volume = db.insert_child_volume(vdi.volume.parent_id,
                                                          vdi.volume.vsize)
                     db.set_volume_as_snapshot(snap_volume.id)
                     db.insert_vdi(vdi.name, vdi.description,
                                   snap_uuid, snap_volume.id, False)
+
+                    db.update_volume_parent(vdi.volume.id, snap_volume.id)
+
                     result_volume_id = str(snap_volume.id)
                     path = os.path.basename(sr) + '/'+ str(vdi.volume.id) + '@' + str(snap_volume.id)
                     cmd = [
@@ -198,8 +237,12 @@ class Implementation(DefaultImplementation):
                     image_format = ImageFormat.get_format(vdi.image_type)
                     image_utils = image_format.image_utils
                     cloned_volume = db.insert_new_volume(vdi.volume.vsize, vdi.image_type)
+
+                    # clone parent is the snapshot
                     db.insert_vdi(
                         vdi.name, vdi.description, snap_uuid, cloned_volume.id, False)
+                    db.update_volume_parent(cloned_volume.id, vdi.volume.id)
+
                     result_volume_id = str(cloned_volume.id)
                     snap_path = os.path.basename(sr) + '/'+ str(vdi.volume.id) + '@' + str(vdi.volume.id)
                     clone_path = os.path.basename(sr) + '/'+ result_volume_id
