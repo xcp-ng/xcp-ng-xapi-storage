@@ -7,6 +7,7 @@ import urlparse
 
 from xapi.storage import log
 from xapi.storage.libs import util
+from xapi.storage.libs.libcow.zfsutil import ZFSUtil
 from xapi.storage.common import call
 from xapi.storage.libs.libcow.imageformat import ImageFormat
 from xapi.storage.libs.libcow.volume import COWVolume
@@ -141,12 +142,7 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
                     path = os.path.basename(sr) + '/'+ str(vdi.volume.parent_id) + '@' + str(vdi.volume.id)
                 else:
                     path = os.path.basename(sr) + '/'+ str(vdi.volume.id)
-                cmd = [
-                    ZFS_BIN, 'get',
-                    '-o', 'value', '-Hp', 'used,avail',
-                    path
-                ]
-                out = call(dbg, cmd).splitlines()
+                out = ZFSUtil.get_vsize(dbg, path)
                 if is_snapshot:
                     psize = int(out[0])
                 else:
@@ -185,16 +181,7 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         #    raise xapi.storage.api.v5.volume.Sr_not_attached(sr)
         meta = util.get_sr_metadata(dbg, 'file://' + sr)
 
-        cmd = [
-            ZFS_BIN, 'get',
-            '-o', 'value', '-Hp', 'used,avail',
-            meta['name']
-        ]
-
-        try:
-            out = call(dbg, cmd).splitlines()
-        except:
-            log.debug('error querying the size of the pool')
+        out = ZFSUtil.get_vsize(dbg, meta['name'])
 
         # TODO: rewrite this
         psize = int(out[0]) + int(out[1])

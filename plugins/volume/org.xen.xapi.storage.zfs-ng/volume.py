@@ -10,6 +10,7 @@ import xapi.storage.api.v5.volume
 from xapi.storage.common import call
 from xapi.storage import log
 from xapi.storage.libs import util
+from xapi.storage.libs.libcow.zfsutil import ZFSUtil
 from xapi.storage.libs.libcow.callbacks import VolumeContext
 from xapi.storage.libs.libcow.imageformat import ImageFormat
 from xapi.storage.libs.libcow.lock import PollLock
@@ -24,7 +25,6 @@ ZFS_BIN = 'zfs'
 @util.decorate_all_routines(util.log_exceptions_in_function)
 class Implementation(DefaultImplementation):
     def create(self, dbg, sr, name, description, size, sharable):
-        str_size = str(size);
         with VolumeContext(self.callbacks, sr, 'w') as opq:
             image_type = ImageFormat.IMAGE_RAW
             image_format = ImageFormat.get_format(image_type)
@@ -36,11 +36,7 @@ class Implementation(DefaultImplementation):
                     db.insert_vdi(
                         name, description, vdi_uuid, volume.id, sharable)
                     path = os.path.basename(sr) + '/'+ str(volume.id)
-                    cmd = [
-                        'zfs', 'create',
-                        '-V', str_size, path
-                    ]
-                    call(dbg, cmd)
+                    ZFSUtil.create(dbg, path, size)
 
             vdi_uri = self.callbacks.getVolumeUriPrefix(opq) + vdi_uuid
 
@@ -79,39 +75,21 @@ class Implementation(DefaultImplementation):
                                     child_vol = child
                                     break
                             path_clone = os.path.basename(sr) + '/'+ str(child_vol.id)
-                            cmd = [
-                                'zfs', 'promote',
-                                path_clone
-                            ]
-                            log.error('cmd= {}'.format(cmd))
-                            call(dbg, cmd)
+                            ZFSUtil.promote(dbg, path_clone)
                             db.update_volume_parent(child_vol.id, vdi.volume.parent_id)
                             # snapshot path changes after promotion
                             path = os.path.basename(sr) + '/'+ str(child_vol.id) + '@' + str(vdi.volume.id)
                             path_clone = os.path.basename(sr) + '/'+ str(vdi.volume.id)
-                            cmd = [
-                                'zfs', 'destroy',
-                                path_clone
-                            ]
-                            call(dbg, cmd)
+                            ZFSUtil.destroy(dbg, path_clone)
                         else:
                             need_destroy_clone = True
                             path = os.path.basename(sr) + '/'+ str(vdi.volume.id) + '@' + str(vdi.volume.id)
                             path_clone = os.path.basename(sr) + '/'+ str(vdi.volume.id)
                     else:
                         path = os.path.basename(sr) + '/'+ str(vdi.volume.id)
-                    cmd = [
-                        'zfs', 'destroy',
-                        path
-                    ]
-                    log.error('cmd= {}'.format(cmd))
-                    call(dbg, cmd)
+                    ZFSUtil.destroy(dbg, path)
                     if is_snapshot and need_destroy_clone:
-                        cmd = [
-                            'zfs', 'destroy',
-                            path_clone
-                        ]
-                        call(dbg, cmd)
+                        ZFSUtil.destroy(dbg, path_clone)
                     db.delete_vdi(key)
                 with cb.db_context(opq) as db:
                     cb.volumeDestroy(opq, str(vdi.volume.id))
@@ -134,12 +112,7 @@ class Implementation(DefaultImplementation):
                 custom_keys = db.get_vdi_custom_keys(vdi.uuid)
                 vdi_uuid = vdi.uuid
 
-        cmd = [
-            ZFS_BIN, 'get',
-            '-o', 'value', '-Hp', 'used,avail',
-            path
-        ]
-        out = call(dbg, cmd).splitlines()
+        out = ZFSUtil.get_vsize(dbg, path)
         if is_snapshot:
             psize = int(out[0])
         else:
@@ -187,25 +160,11 @@ class Implementation(DefaultImplementation):
                     db.update_volume_parent(vdi.volume.id, snap_volume.id)
 
                     result_volume_id = str(snap_volume.id)
+                    ZFSUtil.snapshot(dbg, str(snap_volume.id),
+                                 os.path.basename(sr) + '/'+ str(vdi.volume.id), False)
                     path = os.path.basename(sr) + '/'+ str(vdi.volume.id) + '@' + str(snap_volume.id)
-                    cmd = [
-                        ZFS_BIN, 'snapshot',
-                        path
-                    ]
-                    log.error('snapshot: {}'.format(cmd))
-                    call(dbg, cmd)
-                    cmd = [
-                        ZFS_BIN, 'clone',
-                        path, os.path.basename(sr) + '/' + str(snap_volume.id)
-                    ]
-                    log.error('clone: {}'.format(cmd))
-                    call(dbg, cmd)
-                    cmd = [
-                        ZFS_BIN, 'promote',
-                        os.path.basename(sr) + '/' + str(snap_volume.id)
-                    ]
-                    log.error('promote clone: {}'.format(cmd))
-                    call(dbg, cmd)
+                    ZFSUtil.clone(dbg, path, os.path.basename(sr) + '/' + str(snap_volume.id))
+                    ZFSUtil.promote(dbg, os.path.basename(sr) + '/' + str(snap_volume.id))
         psize = 0
         snap_uri = cb.getVolumeUriPrefix(opq) + snap_uuid
         return {
@@ -246,12 +205,8 @@ class Implementation(DefaultImplementation):
                     result_volume_id = str(cloned_volume.id)
                     snap_path = os.path.basename(sr) + '/'+ str(vdi.volume.id) + '@' + str(vdi.volume.id)
                     clone_path = os.path.basename(sr) + '/'+ result_volume_id
-                    cmd = [
-                        ZFS_BIN, 'clone',
-                        snap_path, clone_path
-                    ]
-                    log.error('cmd: {}'.format(cmd))
-                    call(dbg, cmd)
+                    ZFSUtil.clone(dbg, snap_path, clone_path)
+
         psize = 0
         snap_uri = cb.getVolumeUriPrefix(opq) + snap_uuid
         return {
