@@ -19,9 +19,6 @@ from xapi.storage.libs.libcow.volume_implementation import Implementation as \
 
 import volume
 
-ZPOOL_BIN = 'zpool'
-ZFS_BIN = 'zfs'
-
 @util.decorate_all_routines(util.log_exceptions_in_function)
 class Implementation(DefaultImplementation):
     def create(self, dbg, sr, name, description, size, sharable):
