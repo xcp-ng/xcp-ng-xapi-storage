@@ -48,17 +48,9 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         if 'mountpoint' in configuration:
             mountpoint = configuration['mountpoint']
 
-        compression = False
-        if 'compression' in configuration:
-            if configuration['compression'] in [
-                    'true', 't', 'on', '1', 'yes']:
-                compression = True
+        compression = util.is_parameter_true(configuration, 'compression')
 
-        cmd = [
-            ZPOOL_BIN, 'create', '-f',
-            name, '-m', mountpoint
-        ]
-
+        mode = None
         if 'mode' in configuration:
             if configuration['mode'] not in [
                     'N', 'M', 'R']:
@@ -68,26 +60,17 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
                 if len(devs) < 2:
                     log.error('mirror mode requires at least two devices')
                     raise
-                cmd.append('mirror')
+                mode = 'mirror'
             if configuration['mode'] in ['R']:
                 if len(devs) < 2:
                     log.error('raidz mode requires at least two devices')
                     raise
-                cmd.append('raidz')
+                mode = 'raidz'
 
-        cmd.extend(devs)
-
-        try:
-            call(dbg, cmd)
-        except:
-            log.error('error creating the pool')
-            raise
+        ZFSUtil.create_pool(dbg, name, mountpoint, mode, devs)
 
         if compression:
-            cmd = [
-                ZFS_BIN, 'set', 'compression=on', name
-            ]
-            call(dbg, cmd)
+            ZFSUtil.setcompression(dbg, name)
 
         log.debug('{}: SR.create: sr={}'.format(dbg, mountpoint))
 
@@ -108,20 +91,10 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
 
     def destroy(self, dbg, sr):
         name = os.path.basename(sr)
-        cmd = [
-            ZPOOL_BIN, 'destroy',
-            name
-        ]
-
-        log.debug('cmd={}'.format(cmd))
-
-        try:
-            call(dbg, cmd)
-        except:
-            log.debug('error destroying the pool the pool')
+        ZFSUtil.destroy_pool(dbg, name)
 
     def detach(self, dbg, sr):
-        # Nothing todo.
+        # TODO
         pass
 
     def ls(self, dbg, sr):
@@ -139,14 +112,10 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
                 image_format = ImageFormat.get_format(vdi.image_type)
                 is_snapshot = bool(vdi.volume.snap)
                 if is_snapshot:
-                    path = os.path.basename(sr) + '/'+ str(vdi.volume.parent_id) + '@' + str(vdi.volume.id)
+                    path = ZFSUtil.build_snap_path(sr, vdi.volume.parent_id, vdi.volume.id)
                 else:
-                    path = os.path.basename(sr) + '/'+ str(vdi.volume.id)
-                out = ZFSUtil.get_vsize(dbg, path)
-                if is_snapshot:
-                    psize = int(out[0])
-                else:
-                    psize = int(out[0]) + int(out[1])
+                    path = os.path.basename(sr) + '/' + str(vdi.volume.id)
+                psize = int(ZFSUtil.get_vsize(dbg, path))
 
                 vdi_uri = cb.getVolumeUriPrefix(opq) + vdi.uuid
                 custom_keys = {}
@@ -181,11 +150,9 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         #    raise xapi.storage.api.v5.volume.Sr_not_attached(sr)
         meta = util.get_sr_metadata(dbg, 'file://' + sr)
 
-        out = ZFSUtil.get_vsize(dbg, meta['name'])
-
-        # TODO: rewrite this
-        psize = int(out[0]) + int(out[1])
-        fsize = int(out[1])
+        psize = int(ZFSUtil.get_vsize(dbg, meta['name']))
+        # in a vol, fsize is the whole volume
+        fsize = psize
 
         return {
             'sr': sr,

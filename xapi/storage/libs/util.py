@@ -397,6 +397,11 @@ def set_cgroup(pid, cgroup):
     except subprocess.CalledProcessError as e:
         log.error('Unable to set cgroup {} of {}: {}'.format(cgroup, pid, e))
 
+def is_parameter_true(configuration, param):
+    if param in configuration:
+        return configuration.get(param) in ['true', 't', 'on', '1', 'yes']
+    else:
+        return False
 
 class TimeoutException(Exception):
     pass

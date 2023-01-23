@@ -18,34 +18,6 @@ class COWUtil(object):
         raise NotImplementedError()
 
     @staticmethod
-    def destroy(dbg, vol_path):
-        """Destroy a volume.
-
-        Args:
-            vol_path: (str) Absolute path to the volume to destroy
-        """
-        raise NotImplementedError()
-
-    @staticmethod
-    def clone(dbg, snap_path, clone_path):
-        """Clone from snapshot.
-
-        Args:
-            snap_path: (str) Absolute path to the snapshot
-            clone_path: (str) Absolute path to clone
-        """
-        raise NotImplementedError()
-
-    @staticmethod
-    def promote(dbg, clone_path):
-        """Promote clone.
-
-        Args:
-            clone_path: (str) Absolute path to a clone
-        """
-        raise NotImplementedError()
-
-    @staticmethod
     def resize(dbg, vol_path, size_mib):
         raise NotImplementedError()
 

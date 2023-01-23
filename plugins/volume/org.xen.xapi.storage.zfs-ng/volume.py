@@ -32,7 +32,7 @@ class Implementation(DefaultImplementation):
                     volume = db.insert_new_volume(size, image_type)
                     db.insert_vdi(
                         name, description, vdi_uuid, volume.id, sharable)
-                    path = os.path.basename(sr) + '/'+ str(volume.id)
+                    path = os.path.basename(sr) + '/' + str(volume.id)
                     ZFSUtil.create(dbg, path, size)
 
             vdi_uri = self.callbacks.getVolumeUriPrefix(opq) + vdi_uuid
@@ -68,22 +68,22 @@ class Implementation(DefaultImplementation):
                             child_vol = None
                             # select any snapshot children to promote
                             for child in children:
-                                if child.snap == 1:
+                                if child.snap:
                                     child_vol = child
                                     break
-                            path_clone = os.path.basename(sr) + '/'+ str(child_vol.id)
+                            path_clone = os.path.basename(sr) + '/' + str(child_vol.id)
                             ZFSUtil.promote(dbg, path_clone)
                             db.update_volume_parent(child_vol.id, vdi.volume.parent_id)
                             # snapshot path changes after promotion
-                            path = os.path.basename(sr) + '/'+ str(child_vol.id) + '@' + str(vdi.volume.id)
-                            path_clone = os.path.basename(sr) + '/'+ str(vdi.volume.id)
+                            path = ZFSUtil.build_snap_path(sr, child_vol.id, vdi.volume.id)
+                            path_clone = os.path.basename(sr) + '/' + str(vdi.volume.id)
                             ZFSUtil.destroy(dbg, path_clone)
                         else:
                             need_destroy_clone = True
-                            path = os.path.basename(sr) + '/'+ str(vdi.volume.id) + '@' + str(vdi.volume.id)
-                            path_clone = os.path.basename(sr) + '/'+ str(vdi.volume.id)
+                            path = ZFSUtil.build_snap_path(sr, vdi.volume.id, vdi.volume.id)
+                            path_clone = os.path.basename(sr) + '/' + str(vdi.volume.id)
                     else:
-                        path = os.path.basename(sr) + '/'+ str(vdi.volume.id)
+                        path = os.path.basename(sr) + '/' + str(vdi.volume.id)
                     ZFSUtil.destroy(dbg, path)
                     if is_snapshot and need_destroy_clone:
                         ZFSUtil.destroy(dbg, path_clone)
@@ -103,17 +103,13 @@ class Implementation(DefaultImplementation):
                 # _vdi_sanitize(vdi, opq, db, cb)
                 is_snapshot = bool(vdi.volume.snap)
                 if is_snapshot:
-                    path = os.path.basename(sr) + '/'+ str(vdi.volume.id) + '@' + str(vdi.volume.id)
+                    path = ZFSUtil.build_snap_path(sr, vdi.volume.id, vdi.volume.id)
                 else:
-                    path = os.path.basename(sr) + '/'+ str(vdi.volume.id)
+                    path = os.path.basename(sr) + '/' + str(vdi.volume.id)
                 custom_keys = db.get_vdi_custom_keys(vdi.uuid)
                 vdi_uuid = vdi.uuid
 
-        out = ZFSUtil.get_vsize(dbg, path)
-        if is_snapshot:
-            psize = int(out[0])
-        else:
-            psize = int(out[0]) + int(out[1])
+        psize = int(ZFSUtil.get_vsize(dbg, path))
         vdi_uri = cb.getVolumeUriPrefix(opq) + vdi_uuid
         return {
             'uuid': vdi.uuid,
@@ -158,11 +154,17 @@ class Implementation(DefaultImplementation):
 
                     result_volume_id = str(snap_volume.id)
                     ZFSUtil.snapshot(dbg, str(snap_volume.id),
-                                 os.path.basename(sr) + '/'+ str(vdi.volume.id), False)
-                    path = os.path.basename(sr) + '/'+ str(vdi.volume.id) + '@' + str(snap_volume.id)
-                    ZFSUtil.clone(dbg, path, os.path.basename(sr) + '/' + str(snap_volume.id))
-                    ZFSUtil.promote(dbg, os.path.basename(sr) + '/' + str(snap_volume.id))
-        psize = 0
+                                 os.path.basename(sr) + '/' + str(vdi.volume.id), False)
+                    path = ZFSUtil.build_snap_path(sr, vdi.volume.id, snap_volume.id)
+
+                    # clone volume and promote it to enable to destroy volume and r/w access
+                    snap_path = os.path.basename(sr) + '/' + str(snap_volume.id)
+                    ZFSUtil.clone(dbg, path, snap_path)
+                    ZFSUtil.promote(dbg, snap_path)
+
+        new_snap_path = ZFSUtil.build_snap_path(sr, snap_volume.id, snap_volume.id)
+        psize = int(ZFSUtil.get_vsize(dbg, new_snap_path))
+
         snap_uri = cb.getVolumeUriPrefix(opq) + snap_uuid
         return {
             'uuid': snap_uuid,
@@ -187,7 +189,7 @@ class Implementation(DefaultImplementation):
             with PollLock(opq, 'gl', cb, 0.5):
                 with cb.db_context(opq) as db:
                     vdi = db.get_vdi_by_id(key)
-                    if vdi.volume.snap == 0:
+                    if not vdi.volume.snap:
                         log.error('Only snapshots can be cloned!')
                         raise
                     image_format = ImageFormat.get_format(vdi.image_type)
@@ -200,11 +202,11 @@ class Implementation(DefaultImplementation):
                     db.update_volume_parent(cloned_volume.id, vdi.volume.id)
 
                     result_volume_id = str(cloned_volume.id)
-                    snap_path = os.path.basename(sr) + '/'+ str(vdi.volume.id) + '@' + str(vdi.volume.id)
-                    clone_path = os.path.basename(sr) + '/'+ result_volume_id
+                    snap_path = ZFSUtil.build_snap_path(sr, vdi.volume.id, vdi.volume.id)
+                    clone_path = os.path.basename(sr) + '/' + result_volume_id
                     ZFSUtil.clone(dbg, snap_path, clone_path)
 
-        psize = 0
+        psize = int(ZFSUtil.get_vsize(dbg, clone_path))
         snap_uri = cb.getVolumeUriPrefix(opq) + snap_uuid
         return {
             'uuid': snap_uuid,
