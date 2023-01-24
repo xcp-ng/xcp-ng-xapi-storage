@@ -61,16 +61,23 @@ class Implementation(DefaultImplementation):
                     if is_snapshot:
                         children = db.get_children(vdi.volume.id)
                         if children:
-                            for child in children:
-                                if child.snap == 0:
-                                    log.error('Current snapshot is in-use, we cannot destroy it')
-                                    raise
-                            child_vol = None
-                            # select any snapshot children to promote
-                            for child in children:
-                                if child.snap:
-                                    child_vol = child
-                                    break
+                            # when snapshot has only one volume child
+                            # it can be destroyed by first promoting the volume
+                            if len(children) == 1 and not children[0].snap:
+                                child_vol = children[0]
+                            else:
+                                for child in children:
+                                    if not child.snap:
+                                        log.error('Current snapshot is in-use, we cannot destroy it')
+                                        raise
+                                child_vol = None
+                                # select any snapshot children to promote
+                                # note that in general we have only one snapshots children and
+                                # probably some volumes children
+                                for child in children:
+                                    if child.snap:
+                                        child_vol = child
+                                        break
                             path_clone = os.path.basename(sr) + '/' + str(child_vol.id)
                             ZFSUtil.promote(dbg, path_clone)
                             db.update_volume_parent(child_vol.id, vdi.volume.parent_id)
