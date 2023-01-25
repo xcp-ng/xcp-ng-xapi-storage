@@ -48,6 +48,8 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         if 'mountpoint' in configuration:
             mountpoint = configuration['mountpoint']
 
+        configuration['mountpoint'] = mountpoint
+
         compression = util.is_parameter_true(configuration, 'compression')
 
         mode = None
