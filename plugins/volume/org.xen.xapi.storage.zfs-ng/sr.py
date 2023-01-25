@@ -92,8 +92,8 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         return configuration
 
     def destroy(self, dbg, sr):
-        name = os.path.basename(sr)
-        ZFSUtil.destroy_pool(dbg, name)
+        meta = util.get_sr_metadata(dbg, 'file://' + sr)
+        ZFSUtil.destroy_pool(dbg, meta['name'])
 
     def detach(self, dbg, sr):
         # TODO
