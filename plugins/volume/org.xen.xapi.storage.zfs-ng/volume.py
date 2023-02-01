@@ -70,14 +70,9 @@ class Implementation(DefaultImplementation):
                                     if not child.snap:
                                         log.error('Current snapshot is in-use, we cannot destroy it')
                                         raise
-                                child_vol = None
-                                # select any snapshot children to promote
-                                # note that in general we have only one snapshots children and
-                                # probably some volumes children
-                                for child in children:
-                                    if child.snap:
-                                        child_vol = child
-                                        break
+                                # note that there is always one child
+                                # and is a snapshot
+                                child_vol = children[0]
                             path_clone = os.path.basename(sr) + '/' + str(child_vol.id)
                             ZFSUtil.promote(dbg, path_clone)
                             db.update_volume_parent(child_vol.id, vdi.volume.parent_id)
