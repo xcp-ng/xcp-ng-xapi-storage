@@ -150,11 +150,9 @@ class COWDatapath(object):
                                 # Create single clone
                                 COWDatapath.create_single_clone(
                                     db, sr, key, cb)
-                except:
-                    log.error(
-                        ("{}: Datapath.epc_open: failed to complete "
-                         "open, {}").format(dbg, sys.exc_info()[0])
-                    )
+                except Exception as e:
+                    log.error("{}: Datapath.epc_open: failed to complete open, {}"
+                              .format(dbg, e))
                     raise
         return None
 
@@ -174,11 +172,9 @@ class COWDatapath(object):
                             # truncate
                             image_utils.reset(dbg, vol_path)
                             db.update_vdi_nonpersistent(vdi.uuid, None)
-            except:
-                log.error(
-                    ("{}: Datapath.epc_close: failed to complete "
-                     "close, {}").format(dbg, sys.exc_info()[1])
-                )
+            except Exception as e:
+                log.error("{}: Datapath.epc_close: failed to complete close, {}"
+                          .format(dbg, e))
                 raise
         return None
 
