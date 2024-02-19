@@ -67,8 +67,8 @@ class Qemudisk(object):
     def _qmp_disconnect(self, dbg):
         try:
             self.qmp.close()
-        except:
-            log.error("{}: unable to close properly qmp connection".format(dbg))
+        except Exception as e:
+            log.error("{}: unable to close properly qmp connection: {}".format(dbg, e))
         finally:
             self.qmp = None
 
