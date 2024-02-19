@@ -68,7 +68,7 @@ class Qemudisk(object):
         try:
             self.qmp.close()
         except:
-            log.debug("{}: unable to close properly qmp connection".format(dbg))
+            log.error("{}: unable to close properly qmp connection".format(dbg))
         finally:
             self.qmp = None
 
@@ -147,7 +147,7 @@ class Qemudisk(object):
             self._qmp_command(dbg, "blockdev-del", **args)
             self._qmp_disconnect(dbg)
         except Exception as e:
-            log.debug('{}: failed to close qemu: {}'.format(dbg, e))
+            log.error('{}: failed to close qemu: {}'.format(dbg, e))
             self._kill_qemu()
 
     def quit(self, dbg, key):

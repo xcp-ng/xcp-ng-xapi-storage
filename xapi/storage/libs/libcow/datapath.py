@@ -66,7 +66,7 @@ class COWDatapath(object):
                     try:
                         cls.activate_internal(dbg, opq, vdi, img, cb)
                     except:
-                        log.debug('{}: activate_internal failed'.format(dbg))
+                        log.error('{}: activate_internal failed'.format(dbg))
                         raise
 
     @staticmethod
@@ -88,7 +88,7 @@ class COWDatapath(object):
                     try:
                         cls.deactivate_internal(dbg, opq, vdi, img, cb)
                     except:
-                        log.debug('{}: deactivate_internal failed'.format(dbg))
+                        log.error('{}: deactivate_internal failed'.format(dbg))
 
     @staticmethod
     def detach_internal(dbg, opq, vdi, cb):
@@ -104,7 +104,7 @@ class COWDatapath(object):
                 # deactivate LVs chain here
                 cls.detach_internal(dbg, opq, vdi, cb)
             except:
-                log.debug('{}: detach_internal failed'.format(dbg))
+                log.error('{}: detach_internal failed'.format(dbg))
 
     @classmethod
     def create_single_clone(cls, db, sr, key, cb):
