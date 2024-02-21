@@ -1,7 +1,7 @@
 from __future__ import print_function
 
 from xmlrpclib import Transport
-from httplib import HTTPConnection
+from http.client import HTTPConnection
 from .backend import PluginBackend
 
 SOCKPATH = '/var/xapi/xcp-rrdd'
