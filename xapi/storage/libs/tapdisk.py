@@ -10,7 +10,7 @@ from . import image
 from xapi.storage.libs.util import call
 from xapi.storage.libs.util import var_run_prefix
 from xapi.storage import log
-import cPickle
+import pickle
 
 # Use Xen tapdisk to create block devices from files
 
@@ -237,7 +237,7 @@ def save_tapdisk_metadata(dbg, path, tap):
         if e.errno != errno.EEXIST:
             raise
     with open(dirname + "/" + TD_PROC_METADATA_FILE, "w") as fd:
-        cPickle.dump(tap.__dict__, fd)
+        pickle.dump(tap.__dict__, fd)
 
 
 def load_tapdisk_metadata(dbg, path):
@@ -252,7 +252,7 @@ def load_tapdisk_metadata(dbg, path):
     #    raise Exception('volume doesn\'t exist')
     #    #raise xapi.storage.api.v5.volume.Volume_does_not_exist(dirname)
     with open(filename, "r") as fd:
-        meta = cPickle.load(fd)
+        meta = pickle.load(fd)
         tap = Tapdisk(meta['minor'], meta['pid'], meta['f'])
         tap.secondary = meta['secondary']
         tap.type = meta['type']

@@ -2,7 +2,7 @@ from __future__ import absolute_import
 import os
 import errno
 import fcntl
-import cPickle
+import pickle
 
 from xapi.storage import log
 from xapi.storage.libs import util
@@ -71,7 +71,7 @@ class RefCounter(object):
 
         with open(self.__refcounter_path, 'a+') as f:
             try:
-                self.__refcount_dict = cPickle.load(f)
+                self.__refcount_dict = pickle.load(f)
             except EOFError:
                 self.__refcount_dict = {}
 
@@ -89,7 +89,7 @@ class RefCounter(object):
             self.reset()
         else:
             with open(self.__refcounter_path, 'w') as f:
-                cPickle.dump(self.__refcount_dict, f, cPickle.HIGHEST_PROTOCOL)
+                pickle.dump(self.__refcount_dict, f, pickle.HIGHEST_PROTOCOL)
 
         self.__unlock_and_close()
         self.__refcount_dict = None
