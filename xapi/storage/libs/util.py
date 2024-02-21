@@ -181,7 +181,7 @@ def index(iterable, entry, instance=1):
         raise ValueError("'instance' must be different from 0")
 
     idx = 0
-    for i in xrange(instance):
+    for i in range(instance):
         try:
             idx += iterable[idx:].index(entry) + 1
         except ValueError:

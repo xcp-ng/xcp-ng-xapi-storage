@@ -232,7 +232,7 @@ class RefCounter(object):
             RefCounter.ROOT_PATH,
             *self.__entries[:start_i]
         )
-        for i in xrange(start_i, stop_i):
+        for i in range(start_i, stop_i):
             lock_path = os.path.join(
                 incremental_path,
                 self.__entries[i] + RefCounter.LOCK_SFX
@@ -290,7 +290,7 @@ class RefCounter(object):
         if stop_i is None:
             stop_i = -1
 
-        for i in xrange(start_i, stop_i, -1):
+        for i in range(start_i, stop_i, -1):
             self.__locks[i].close()
             self.__locks[i] = None
 
