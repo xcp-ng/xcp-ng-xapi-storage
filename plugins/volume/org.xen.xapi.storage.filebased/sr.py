@@ -3,7 +3,7 @@
 import os
 import os.path
 import sys
-import urlparse
+import urllib.parse
 
 from xapi.storage import log
 from xapi.storage.libs import util
@@ -27,7 +27,7 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         log.debug('{}: SR.attach: config={}, uri={}'.format(
             dbg, configuration, uri))
 
-        sr = urlparse.urlparse(uri).path
+        sr = urllib.parse.urlparse(uri).path
 
         # Start GC for this host
         COWCoalesce.start_gc(dbg, 'filebased', sr)
@@ -39,7 +39,7 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
             dbg, configuration, sr_uuid))
 
         uri = configuration['file-uri']
-        sr = urlparse.urlparse(uri).path
+        sr = urllib.parse.urlparse(uri).path
         log.debug('{}: SR.create: sr={}'.format(dbg, sr))
 
         # Create the metadata database

@@ -6,7 +6,7 @@ import json
 import os
 import re
 import time
-import urlparse
+import urllib.parse
 
 from xapi.storage import log
 from xapi.storage.libs import util
@@ -157,7 +157,7 @@ class Callbacks(object):
         return util.get_physical_file_size(self._get_volume_path(opq, name))
 
     def volumeStartOperations(self, sr, mode):
-        return urlparse.urlparse(sr).path
+        return urllib.parse.urlparse(sr).path
 
     def volumeStopOperations(self, opq):
         pass
@@ -266,7 +266,7 @@ class Callbacks(object):
         """
         Backup meta database if necessary.
         """
-        mnt_path = urlparse.urlparse(uri).path
+        mnt_path = urllib.parse.urlparse(uri).path
         with Lock(mnt_path, 'db_backup', self):
             now = time.time()
             with self.db_context(mnt_path) as db:
