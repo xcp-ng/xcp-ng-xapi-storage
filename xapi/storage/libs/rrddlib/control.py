@@ -1,6 +1,6 @@
 from __future__ import print_function
 
-from xmlrpclib import Transport
+from xmlrpc.client import Transport
 from http.client import HTTPConnection
 from .backend import PluginBackend
 
@@ -39,7 +39,7 @@ class PluginControl(object):
             raise PluginControlError(response["ErrorDescription"])
 
     def __init__(self, plugin_name, plugin_domain, read_freq, time_to_reading):
-        from xmlrpclib import ServerProxy
+        from xmlrpc.client import ServerProxy
 
         # The proxy through which we talk to the rrd daemon is the
         # same for all plugins, so we just initialize it once and
