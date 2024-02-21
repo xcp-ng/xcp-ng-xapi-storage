@@ -24,7 +24,7 @@ cmake_minimum_required(VERSION 3.13.1)
 
 project(xcp-ng-xapi-storage VERSION 1.0.2 LANGUAGES)
 
-find_package(Python2 COMPONENTS Interpreter REQUIRED)
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
 # ------------------------------------------------------------------------------
 # Config.
@@ -54,7 +54,7 @@ set(STORAGE_LIBS "${CMAKE_CURRENT_BINARY_DIR}/setup_py")
 
 file(GLOB_RECURSE STORAGE_LIBS_SOURCES "xapi/*.py")
 add_custom_command(OUTPUT ${STORAGE_LIBS_TARGET}
-  COMMAND ${Python2_EXECUTABLE} setup.py install --root "${STORAGE_LIBS}"
+  COMMAND ${Python3_EXECUTABLE} setup.py install --root "${STORAGE_LIBS}"
   COMMAND ${CMAKE_COMMAND} -E touch ${STORAGE_LIBS_TARGET}
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
   DEPENDS setup.py ${STORAGE_LIBS_SOURCES}
