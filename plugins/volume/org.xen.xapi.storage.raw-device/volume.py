@@ -35,7 +35,7 @@ class Implementation(DefaultImplementation):
 
                     # Find first free device with the best size.
                     free_device = None
-                    psize = sys.maxint
+                    psize = sys.maxsize
                     for device in devices:
                         if os.path.realpath(device) not in used_devices:
                             device_size = util.get_physical_file_size(device)
