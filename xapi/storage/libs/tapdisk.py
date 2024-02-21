@@ -6,7 +6,7 @@ import uuid
 # import fdsend
 
 # TODO: Get rid of 'image' module
-import image
+from . import image
 from xapi.storage.libs.util import call
 from xapi.storage.libs.util import var_run_prefix
 from xapi.storage import log

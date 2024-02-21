@@ -14,7 +14,7 @@ from xapi.storage.libs.libcow.metabase import VolumeMetabase
 
 from .lock import Lock
 
-import db_backup
+from . import db_backup
 
 
 class VolumeLock(object):
