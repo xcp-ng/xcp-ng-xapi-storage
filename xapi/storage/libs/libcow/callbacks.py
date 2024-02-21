@@ -186,7 +186,7 @@ class Callbacks(object):
         try:
             lock.lock(True)
             return lock
-        except IOError, e:
+        except IOError as e:
             if e.errno in [errno.EACCES, errno.EAGAIN]:
                 return None
             raise
