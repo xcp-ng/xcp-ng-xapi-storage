@@ -232,7 +232,7 @@ def save_tapdisk_metadata(dbg, path, tap):
     """ Record the tapdisk metadata for this VDI in host-local storage """
     dirname = _metadata_dir(path)
     try:
-        os.makedirs(dirname, mode=0755)
+        os.makedirs(dirname, mode=0o755)
     except OSError as e:
         if e.errno != errno.EEXIST:
             raise

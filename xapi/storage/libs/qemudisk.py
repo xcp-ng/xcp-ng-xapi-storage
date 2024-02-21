@@ -231,7 +231,7 @@ def save_qemudisk_metadata(dbg, path, tap):
     """ Record the qemudisk metadata for this VDI in host-local storage """
     dirname = _metadata_dir(path)
     try:
-        os.makedirs(dirname, mode=0755)
+        os.makedirs(dirname, mode=0o755)
     except OSError as e:
         if e.errno != errno.EEXIST:
             raise
