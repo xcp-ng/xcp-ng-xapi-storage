@@ -91,7 +91,7 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
 
         devices = util.get_sr_metadata(dbg, 'file://' + sr)['devices']
         total_size = 0
-        for device in map(lambda x: os.path.realpath(x), devices):
+        for device in (os.path.realpath(x) for x in devices):
             total_size += util.get_physical_file_size(device)
 
         used_size = COWVolume.get_sr_provisioned_size(
