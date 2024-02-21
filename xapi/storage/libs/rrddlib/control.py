@@ -1,5 +1,3 @@
-from __future__ import print_function
-
 from xmlrpc.client import Transport
 from http.client import HTTPConnection
 from .backend import PluginBackend
