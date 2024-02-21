@@ -1,3 +1,5 @@
+from __future__ import print_function
+
 from xmlrpclib import Transport
 from httplib import HTTPConnection
 from backend import PluginBackend
@@ -139,5 +141,5 @@ class PluginControl(object):
             except socket_error:
                 # Log this thing instead of stderr
                 msg = "Failed to contact xcp-rrdd. Sleeping for 5 seconds.."
-                print msg
+                print(msg)
                 sleep(5.0)
