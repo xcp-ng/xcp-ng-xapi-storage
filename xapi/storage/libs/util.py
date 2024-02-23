@@ -84,6 +84,7 @@ def call_unlogged(dbg, cmd_args, error=True, simple=True, exp_rc=0):
     """
     p = subprocess.Popen(
         cmd_args,
+        encoding="utf-8",
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         close_fds=True
