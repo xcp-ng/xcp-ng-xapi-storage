@@ -236,7 +236,7 @@ def save_tapdisk_metadata(dbg, path, tap):
     except OSError as e:
         if e.errno != errno.EEXIST:
             raise
-    with open(dirname + "/" + TD_PROC_METADATA_FILE, "w") as fd:
+    with open(dirname + "/" + TD_PROC_METADATA_FILE, "wb") as fd:
         pickle.dump(tap.__dict__, fd)
 
 
@@ -251,7 +251,7 @@ def load_tapdisk_metadata(dbg, path):
     # if not(os.path.exists(filename)):
     #    raise Exception('volume doesn\'t exist')
     #    #raise xapi.storage.api.v5.volume.Volume_does_not_exist(dirname)
-    with open(filename, "r") as fd:
+    with open(filename, "rb") as fd:
         meta = pickle.load(fd)
         tap = Tapdisk(meta['minor'], meta['pid'], meta['f'])
         tap.secondary = meta['secondary']
