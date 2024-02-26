@@ -1,9 +1,9 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import os
 import os.path
 import sys
-import urlparse
+import urllib.parse
 
 from xapi.storage import log
 from xapi.storage.common import call
@@ -45,7 +45,7 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         log.debug('{}: SR.attach: config={}, uri={}'.format(
             dbg, configuration, uri))
 
-        dev_path = urlparse.urlparse(uri).path
+        dev_path = urllib.parse.urlparse(uri).path
 
         sr = self._mount_path(configuration['sr_uuid'])
 
@@ -69,7 +69,7 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
             dbg, configuration, sr_uuid))
 
         uri = configuration['device']
-        dev_path = urlparse.urlparse(uri).path
+        dev_path = urllib.parse.urlparse(uri).path
         log.debug('{}: SR.create: dev_path={}'.format(dbg, dev_path))
 
         # Make the filesystem

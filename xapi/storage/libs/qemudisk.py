@@ -6,7 +6,7 @@ import signal
 import subprocess
 import time
 
-import cPickle
+import pickle
 
 # TODO: Get rid of 'image' module
 # import image
@@ -231,12 +231,12 @@ def save_qemudisk_metadata(dbg, path, tap):
     """ Record the qemudisk metadata for this VDI in host-local storage """
     dirname = _metadata_dir(path)
     try:
-        os.makedirs(dirname, mode=0755)
+        os.makedirs(dirname, mode=0o755)
     except OSError as e:
         if e.errno != errno.EEXIST:
             raise
     with open(dirname + "/" + QEMU_PROC_METADATA_FILE, "w") as fd:
-        cPickle.dump(tap.__dict__, fd)
+        pickle.dump(tap.__dict__, fd)
 
 
 def load_qemudisk_metadata(dbg, path):
@@ -251,7 +251,7 @@ def load_qemudisk_metadata(dbg, path):
     #    raise Exception('volume doesn\'t exist')
     #    #raise xapi.storage.api.v5.volume.Volume_does_not_exist(dirname)
     with open(filename, "r") as fd:
-        meta = cPickle.load(fd)
+        meta = pickle.load(fd)
         qemu_be = Qemudisk(meta['pid'], meta['qmp_sock'],
                            meta['key'], meta['f'])
 

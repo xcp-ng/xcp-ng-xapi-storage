@@ -1,6 +1,5 @@
-from __future__ import absolute_import
 import sys
-import urlparse
+import urllib.parse
 
 from xapi.storage import log
 from xapi.storage.libs import tapdisk, image, qemudisk, util
@@ -188,7 +187,7 @@ class TapdiskDatapath(COWDatapath):
     def parse_uri(uri):
         # uri will be like:
         # "tapdisk://<sr-type>/<sr-mount-or-volume-group>|<volume-name>"
-        mount_or_vg, name = urlparse.urlparse(uri).path.split('|')
+        mount_or_vg, name = urllib.parse.urlparse(uri).path.split('|')
         return ('vhd:///' + mount_or_vg, name)
 
     @staticmethod
@@ -277,7 +276,7 @@ class QdiskDatapath(COWDatapath):
     def parse_uri(uri):
         # uri will be like:
         # "qdisk://<sr-type>/<sr-mount-or-volume-group>|<volume-name>"
-        mount_or_vg, name = urlparse.urlparse(uri).path.split('|')
+        mount_or_vg, name = urllib.parse.urlparse(uri).path.split('|')
         return ('qcow2:///' + mount_or_vg, name)
 
     @staticmethod

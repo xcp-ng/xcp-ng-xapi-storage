@@ -30,7 +30,6 @@ Not yet implemented:
         order to prevent a deadlock
 """
 
-from __future__ import absolute_import
 import os
 import errno
 from ctypes import (

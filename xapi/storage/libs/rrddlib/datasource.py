@@ -70,7 +70,7 @@ def is_valid_c_primitive(obj, c_type):
 
     try:
         num = cast(obj)
-        if not (isinstance(obj, basestring) or isinstance(obj, cast)):
+        if not (isinstance(obj, str) or isinstance(obj, cast)):
             return None
     except ValueError:
         return None
@@ -117,7 +117,7 @@ class Datasource(object):
         self.__data = {}
 
         # In Python 3.x, check against 'str'
-        if not isinstance(name, basestring):
+        if not isinstance(name, str):
             raise TypeError("'name' is not of type 'string'")
         self.__data['name'] = name
 
@@ -137,7 +137,7 @@ class Datasource(object):
         self.__data['value'] = tmp_1
 
         if description is not None:
-            if not isinstance(description, basestring):
+            if not isinstance(description, str):
                 raise TypeError("'description' is not of type 'string'")
             self.__data['description'] = description
 
@@ -151,7 +151,7 @@ class Datasource(object):
             self.__data['type'] = datasource_type
 
         if units is not None:
-            if not isinstance(units, basestring):
+            if not isinstance(units, str):
                 raise TypeError("'units' is not of type 'string'")
             self.__data['units'] = units
 

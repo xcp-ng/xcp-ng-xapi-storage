@@ -1,10 +1,10 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import os
 import os.path
 import sys
 import errno
-import urlparse
+import urllib.parse
 
 import xapi.storage.api.v5.volume
 from xapi.storage import log
@@ -48,7 +48,7 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
 
     def probe(self, dbg, configuration):
         uri = configuration['uri']
-        u = urlparse.urlparse(uri)
+        u = urllib.parse.urlparse(uri)
         if u.scheme is None:
             raise xapi.storage.api.v5.volume.SR_does_not_exist(
                 'The SR URI is invalid')
@@ -65,7 +65,7 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         log.debug('{}: SR.attach: config={}, uri={}'.format(
             dbg, configuration, uri))
 
-        nfs_uri = urlparse.urlsplit(uri)
+        nfs_uri = urllib.parse.urlsplit(uri)
         if nfs_uri.scheme != 'nfs':
             raise ValueError('Incorrect URI scheme')
 
@@ -74,7 +74,7 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         sr_uuid = configuration['sr_uuid']
         mnt_path = self._mount_path(sr_uuid)
         sr_dir = os.path.join(mnt_path, sr_uuid)
-        sr = urlparse.urlunsplit(('file', '', sr_dir, None, None))
+        sr = urllib.parse.urlunsplit(('file', '', sr_dir, None, None))
 
         if os.path.exists(mnt_path) and os.path.ismount(mnt_path):
             log.debug("%s: SR.attach: uri=%s ALREADY ATTACHED" % (dbg, uri))
@@ -97,7 +97,7 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
             dbg, configuration, sr_uuid))
 
         uri = configuration['uri']
-        nfs_uri = urlparse.urlsplit(uri)
+        nfs_uri = urllib.parse.urlsplit(uri)
         if nfs_uri.scheme != 'nfs':
             raise ValueError('Incorrect URI scheme')
 
@@ -155,7 +155,7 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
             log.debug('GC already stopped')
 
         # Unmount the FS
-        sr_path = urlparse.urlparse(sr).path
+        sr_path = urllib.parse.urlparse(sr).path
         mnt_path = os.path.dirname(sr_path)
         self._unmount(dbg, mnt_path)
         os.rmdir(mnt_path)
