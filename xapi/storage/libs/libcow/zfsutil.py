@@ -7,6 +7,8 @@ ZFS_UTIL_BIN = 'zfs'
 ZPOOL_UTIL_BIN = 'zpool'
 
 class ZFSUtil(COWUtil):
+    MOUNT_ROOT = '/var/run/sr-mount/'
+
     @staticmethod
     def getImgFormat(dbg):
         return 'raw'
@@ -30,10 +32,10 @@ class ZFSUtil(COWUtil):
         return call(dbg, cmd)
 
     @staticmethod
-    def create_pool(dbg, name, mountpoint, mode, devs):
+    def create_pool(dbg, sr_meta, mountpoint, mode, devs):
         cmd = [
             ZPOOL_UTIL_BIN, 'create',
-            '-f', name, '-m', mountpoint
+            '-f', ZFSUtil.sr_name(sr_meta), '-m', mountpoint
         ]
         if not mode == None:
             cmd.append(mode)
@@ -68,14 +70,14 @@ class ZFSUtil(COWUtil):
         return call(dbg, cmd)
 
     @staticmethod
-    def setcompression(dbg, name):
+    def setcompression(dbg, sr_meta):
         """Set compression on.
 
         Args:
             name: (str) name of the pool
         """
         cmd = [
-            ZFS_UTIL_BIN, 'set', 'compression=on', name
+            ZFS_UTIL_BIN, 'set', 'compression=on', ZFSUtil.sr_name(sr_meta)
         ]
         call(dbg, cmd)
 
@@ -103,10 +105,10 @@ class ZFSUtil(COWUtil):
         return call(dbg, cmd)
 
     @staticmethod
-    def destroy_pool(dbg, name):
+    def destroy_pool(dbg, sr_meta):
         cmd = [
             ZPOOL_UTIL_BIN, 'destroy',
-            name
+            ZFSUtil.sr_name(sr_meta)
         ]
         return call(dbg, cmd)
 
@@ -120,3 +122,7 @@ class ZFSUtil(COWUtil):
             dbg, new_cow_path, parent_cow_path, force_parent_link):
         return ZFSUtil.snapshot(
             dbg, new_cow_path, parent_cow_path, force_parent_link)
+
+    @staticmethod
+    def sr_name(sr_meta):
+        return "sr-{}".format(sr_meta['unique_id'])

@@ -44,7 +44,7 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
             raise Exception('devices parameter is missed')
         devs = configuration['devices'].split(',')
 
-        mountpoint = '/' + name
+        mountpoint = os.path.join(ZFSUtil.MOUNT_ROOT, sr_uuid)
         if 'mountpoint' in configuration:
             mountpoint = configuration['mountpoint']
 
@@ -69,15 +69,6 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
                     raise Exception('raidz mode requires at least two devices')
                 mode = 'raidz'
 
-        ZFSUtil.create_pool(dbg, name, mountpoint, mode, devs)
-
-        if compression:
-            ZFSUtil.setcompression(dbg, name)
-
-        log.debug('{}: SR.create: sr={}'.format(dbg, mountpoint))
-
-        importlib.import_module('zfs-ng').Callbacks().create_database(mountpoint)
-
         meta = {
             'name': name,
             'description': description,
@@ -87,13 +78,23 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
             'read_caching': False,
             'keys': {}
         }
+
+        ZFSUtil.create_pool(dbg, meta, mountpoint, mode, devs)
+
+        if compression:
+            ZFSUtil.setcompression(dbg, meta)
+
+        log.debug('{}: SR.create: sr={}'.format(dbg, mountpoint))
+
+        importlib.import_module('zfs-ng').Callbacks().create_database(mountpoint)
+
         util.update_sr_metadata(dbg, 'file://' + mountpoint, meta)
 
         return configuration
 
     def destroy(self, dbg, sr):
         meta = util.get_sr_metadata(dbg, 'file://' + sr)
-        ZFSUtil.destroy_pool(dbg, meta['name'])
+        ZFSUtil.destroy_pool(dbg, meta)
 
     def detach(self, dbg, sr):
         # TODO
@@ -152,7 +153,7 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         #    raise xapi.storage.api.v5.volume.Sr_not_attached(sr)
         meta = util.get_sr_metadata(dbg, 'file://' + sr)
 
-        psize = int(ZFSUtil.get_vsize(dbg, meta['name']))
+        psize = int(ZFSUtil.get_vsize(dbg, ZFSUtil.sr_name(meta)))
         # in a vol, fsize is the whole volume
         fsize = psize
 
