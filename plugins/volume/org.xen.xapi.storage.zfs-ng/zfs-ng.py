@@ -1,3 +1,4 @@
+import os.path
 import xapi.storage.libs.libcow.callbacks
 
 class Callbacks(xapi.storage.libs.libcow.callbacks.Callbacks):
@@ -6,4 +7,4 @@ class Callbacks(xapi.storage.libs.libcow.callbacks.Callbacks):
         return "zfs-ng/" + opq + "|"
 
     def volumeGetPath(self, opq, name):
-        return "/dev/zvol/" + opq + "/" + name
+        return os.path.join("/dev/zvol", "sr-" + os.path.basename(opq), name)

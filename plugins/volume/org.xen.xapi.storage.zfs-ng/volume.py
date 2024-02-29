@@ -19,6 +19,10 @@ from xapi.storage.libs.libcow.volume_implementation import Implementation as \
 
 import volume
 
+def _volume_path(sr, id):
+    return os.path.join("sr-" + os.path.basename(sr), # FIXME
+                        str(id))
+
 @util.decorate_all_routines(util.log_exceptions_in_function)
 class Implementation(DefaultImplementation):
     def create(self, dbg, sr, name, description, size, sharable):
@@ -32,7 +36,7 @@ class Implementation(DefaultImplementation):
                     volume = db.insert_new_volume(size, image_type)
                     db.insert_vdi(
                         name, description, vdi_uuid, volume.id, sharable)
-                    path = os.path.basename(sr) + '/' + str(volume.id)
+                    path = _volume_path(sr, volume.id)
                     ZFSUtil.create(dbg, path, size)
 
             vdi_uri = self.callbacks.getVolumeUriPrefix(opq) + vdi_uuid
@@ -73,19 +77,19 @@ class Implementation(DefaultImplementation):
                                 # note that there is always one child
                                 # and is a snapshot
                                 child_vol = children[0]
-                            path_clone = os.path.basename(sr) + '/' + str(child_vol.id)
+                            path_clone = _volume_path(sr, child_vol.id)
                             ZFSUtil.promote(dbg, path_clone)
                             db.update_volume_parent(child_vol.id, vdi.volume.parent_id)
                             # snapshot path changes after promotion
                             path = ZFSUtil.build_snap_path(sr, child_vol.id, vdi.volume.id)
-                            path_clone = os.path.basename(sr) + '/' + str(vdi.volume.id)
+                            path_clone = _volume_path(sr, vdi.volume.id)
                             ZFSUtil.destroy(dbg, path_clone)
                         else:
                             need_destroy_clone = True
                             path = ZFSUtil.build_snap_path(sr, vdi.volume.id, vdi.volume.id)
-                            path_clone = os.path.basename(sr) + '/' + str(vdi.volume.id)
+                            path_clone = _volume_path(sr, vdi.volume.id)
                     else:
-                        path = os.path.basename(sr) + '/' + str(vdi.volume.id)
+                        path = _volume_path(sr, vdi.volume.id)
                     ZFSUtil.destroy(dbg, path)
                     if is_snapshot and need_destroy_clone:
                         ZFSUtil.destroy(dbg, path_clone)
@@ -107,7 +111,7 @@ class Implementation(DefaultImplementation):
                 if is_snapshot:
                     path = ZFSUtil.build_snap_path(sr, vdi.volume.id, vdi.volume.id)
                 else:
-                    path = os.path.basename(sr) + '/' + str(vdi.volume.id)
+                    path = _volume_path(sr, vdi.volume.id)
                 custom_keys = db.get_vdi_custom_keys(vdi.uuid)
                 vdi_uuid = vdi.uuid
 
@@ -156,11 +160,11 @@ class Implementation(DefaultImplementation):
 
                     result_volume_id = str(snap_volume.id)
                     ZFSUtil.snapshot(dbg, str(snap_volume.id),
-                                 os.path.basename(sr) + '/' + str(vdi.volume.id), False)
+                                 _volume_path(sr, vdi.volume.id), False)
                     path = ZFSUtil.build_snap_path(sr, vdi.volume.id, snap_volume.id)
 
                     # clone volume and promote it to enable to destroy volume and r/w access
-                    snap_path = os.path.basename(sr) + '/' + str(snap_volume.id)
+                    snap_path = _volume_path(sr, snap_volume.id)
                     ZFSUtil.clone(dbg, path, snap_path)
                     ZFSUtil.promote(dbg, snap_path)
 
@@ -205,7 +209,7 @@ class Implementation(DefaultImplementation):
 
                     result_volume_id = str(cloned_volume.id)
                     snap_path = ZFSUtil.build_snap_path(sr, vdi.volume.id, vdi.volume.id)
-                    clone_path = os.path.basename(sr) + '/' + result_volume_id
+                    clone_path = _volume_path(sr, result_volume_id)
                     ZFSUtil.clone(dbg, snap_path, clone_path)
 
         psize = int(ZFSUtil.get_vsize(dbg, clone_path))

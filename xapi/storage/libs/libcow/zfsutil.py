@@ -19,7 +19,7 @@ class ZFSUtil(COWUtil):
 
     @staticmethod
     def build_snap_path(sr, child_id, vol_id):
-        path = os.path.basename(sr) + '/' + str(child_id) + '@' + str(vol_id)
+        path = "sr-" + os.path.basename(sr) + '/' + str(child_id) + '@' + str(vol_id) # FIXME
         return path
 
     @staticmethod
