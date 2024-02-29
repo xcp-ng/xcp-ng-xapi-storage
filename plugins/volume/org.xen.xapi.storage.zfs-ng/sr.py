@@ -41,7 +41,7 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
 
         if 'devices' not in configuration:
             log.error('devices parameter is missed')
-            raise
+            raise Exception('devices parameter is missed')
         devs = configuration['devices'].split(',')
 
         mountpoint = '/' + name
@@ -57,16 +57,16 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
             if configuration['mode'] not in [
                     'N', 'M', 'R']:
                 log.error('mode can only be N(default), M(mirror) or R(raidz)')
-                raise
+                raise Exception('mode can only be N(default), M(mirror) or R(raidz)')
             if configuration['mode'] in ['M']:
                 if len(devs) < 2:
                     log.error('mirror mode requires at least two devices')
-                    raise
+                    raise Exception('mirror mode requires at least two devices')
                 mode = 'mirror'
             if configuration['mode'] in ['R']:
                 if len(devs) < 2:
                     log.error('raidz mode requires at least two devices')
-                    raise
+                    raise Exception('raidz mode requires at least two devices')
                 mode = 'raidz'
 
         ZFSUtil.create_pool(dbg, name, mountpoint, mode, devs)

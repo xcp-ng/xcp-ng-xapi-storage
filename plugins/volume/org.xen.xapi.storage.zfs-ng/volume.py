@@ -69,7 +69,7 @@ class Implementation(DefaultImplementation):
                                 for child in children:
                                     if not child.snap:
                                         log.error('Current snapshot is in-use, we cannot destroy it')
-                                        raise
+                                        raise Exception('Current snapshot is in-use, we cannot destroy it')
                                 # note that there is always one child
                                 # and is a snapshot
                                 child_vol = children[0]
@@ -193,7 +193,7 @@ class Implementation(DefaultImplementation):
                     vdi = db.get_vdi_by_id(key)
                     if not vdi.volume.snap:
                         log.error('Only snapshots can be cloned!')
-                        raise
+                        raise Exception('Only snapshots can be cloned!')
                     image_format = ImageFormat.get_format(vdi.image_type)
                     image_utils = image_format.image_utils
                     cloned_volume = db.insert_new_volume(vdi.volume.vsize, vdi.image_type)
