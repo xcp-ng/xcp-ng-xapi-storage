@@ -1,5 +1,6 @@
 from __future__ import absolute_import
 import sys
+import traceback
 import urlparse
 
 from xapi.storage import log
@@ -24,16 +25,21 @@ class COWDatapath(object):
 
     @classmethod
     def attach(cls, dbg, uri, domain, cb):
-        sr, key = cls.parse_uri(uri)
-        with VolumeContext(cb, sr, 'r') as opq:
-            with cb.db_context(opq) as db:
-                vdi = db.get_vdi_by_id(key)
-            # activate LVs chain here
-            vol_path = cb.volumeGetPath(opq, str(vdi.volume.id))
+        try:
+            sr, key = cls.parse_uri(uri)
+            with VolumeContext(cb, sr, 'r') as opq:
+                with cb.db_context(opq) as db:
+                    vdi = db.get_vdi_by_id(key)
+                # activate LVs chain here
+                vol_path = cb.volumeGetPath(opq, str(vdi.volume.id))
 
-        return {
-            'implementations': cls.attach_internal(dbg, opq, vdi, vol_path, cb)
-        }
+            i = cls.attach_internal(dbg, opq, vdi, vol_path, cb)
+            return {
+                'implementations': i
+            }
+        except Exception as e:
+            log.error("COWDatapath.attach caught %s", traceback.format_exc())
+            raise
 
     @staticmethod
     def activate_internal(dbg, opq, vdi, img, cb):
@@ -49,25 +55,30 @@ class COWDatapath(object):
     def activate(cls, dbg, uri, domain, cb):
         this_host_label = cb.get_current_host()
         sr, key = cls.parse_uri(uri)
-        with VolumeContext(cb, sr, 'w') as opq:
-            with Lock(opq, 'gl', cb):
-                with cb.db_context(opq) as db:
-                    vdi = db.get_vdi_by_id(key)
-                    # Raise Storage Error VDIInUse - 24
-                    if vdi.active_on:
-                        raise util.create_storage_error(
-                            "SR_BACKEND_FAILURE_24",
-                            ["VDIInUse", "The VDI is currently in use"])
-                    vol_path = cb.volumeGetPath(opq, str(vdi.volume.id))
-                    img = cls._get_image_from_vdi(vdi, vol_path)
-                    if not vdi.sharable:
-                        db.update_vdi_active_on(vdi.uuid, this_host_label)
+        try:
+            with VolumeContext(cb, sr, 'w') as opq:
+                with Lock(opq, 'gl', cb):
+                    with cb.db_context(opq) as db:
+                        vdi = db.get_vdi_by_id(key)
+                        # Raise Storage Error VDIInUse - 24
+                        if vdi.active_on:
+                            log.error("The VDI is currently in use")
+                            raise util.create_storage_error(
+                                "SR_BACKEND_FAILURE_24",
+                                ["VDIInUse", "The VDI is currently in use"])
+                        vol_path = cb.volumeGetPath(opq, str(vdi.volume.id))
+                        img = cls._get_image_from_vdi(vdi, vol_path)
+                        if not vdi.sharable:
+                            db.update_vdi_active_on(vdi.uuid, this_host_label)
 
-                    try:
-                        cls.activate_internal(dbg, opq, vdi, img, cb)
-                    except:
-                        log.debug('{}: activate_internal failed'.format(dbg))
-                        raise
+                        try:
+                            cls.activate_internal(dbg, opq, vdi, img, cb)
+                        except:
+                            log.debug('{}: activate_internal failed'.format(dbg))
+                            raise
+        except Exception as e:
+            log.error("COWDatapath.activate caught %s", traceback.format_exc())
+            raise
 
     @staticmethod
     def deactivate_internal(dbg, opq, vdi, img, cb):
