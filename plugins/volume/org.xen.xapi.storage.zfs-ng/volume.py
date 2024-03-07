@@ -1,0 +1,260 @@
+#!/usr/bin/env python
+
+import importlib
+import os
+import sys
+import urlparse
+import uuid
+import xapi.storage.api.v5.volume
+
+from xapi.storage.common import call
+from xapi.storage import log
+from xapi.storage.libs import util
+from xapi.storage.libs.libcow.zfsutil import ZFSUtil
+from xapi.storage.libs.libcow.callbacks import VolumeContext
+from xapi.storage.libs.libcow.imageformat import ImageFormat
+from xapi.storage.libs.libcow.lock import PollLock
+from xapi.storage.libs.libcow.volume_implementation import Implementation as \
+    DefaultImplementation
+
+import volume
+
+def _volume_path(sr, id):
+    return os.path.join("sr-" + os.path.basename(sr), # FIXME
+                        str(id))
+
+@util.decorate_all_routines(util.log_exceptions_in_function)
+class Implementation(DefaultImplementation):
+    def create(self, dbg, sr, name, description, size, sharable):
+        with VolumeContext(self.callbacks, sr, 'w') as opq:
+            image_type = ImageFormat.IMAGE_RAW
+            image_format = ImageFormat.get_format(image_type)
+            vdi_uuid = str(uuid.uuid4())
+
+            with PollLock(opq, 'gl', self.callbacks, 0.5):
+                with self.callbacks.db_context(opq) as db:
+                    volume = db.insert_new_volume(size, image_type)
+                    db.insert_vdi(
+                        name, description, vdi_uuid, volume.id, sharable)
+                    path = _volume_path(sr, volume.id)
+                    ZFSUtil.create(dbg, path, size)
+
+            vdi_uri = self.callbacks.getVolumeUriPrefix(opq) + vdi_uuid
+
+        return {
+            'key': vdi_uuid,
+            'uuid': vdi_uuid,
+            'name': name,
+            'description': description,
+            'read_write': True,
+            'virtual_size': size,
+            'physical_utilisation': size,
+            'uri': [image_format.uri_prefix + vdi_uri],
+            'sharable': False,
+            'keys': {}
+        }
+
+    def destroy(self, dbg, sr, key):
+        cb = self.callbacks
+        need_destroy_clone = False
+        with VolumeContext(cb, sr, 'w') as opq:
+            with PollLock(opq, 'gl', cb, 0.5):
+                with cb.db_context(opq) as db:
+                    vdi = db.get_vdi_by_id(key)
+                    is_snapshot = bool(vdi.volume.snap)
+                    if is_snapshot:
+                        children = db.get_children(vdi.volume.id)
+                        if children:
+                            # when snapshot has only one volume child
+                            # it can be destroyed by first promoting the volume
+                            if len(children) == 1 and not children[0].snap:
+                                child_vol = children[0]
+                            else:
+                                for child in children:
+                                    if not child.snap:
+                                        log.error('Current snapshot is in-use, we cannot destroy it')
+                                        raise Exception('Current snapshot is in-use, we cannot destroy it')
+                                # note that there is always one child
+                                # and is a snapshot
+                                child_vol = children[0]
+                            path_clone = _volume_path(sr, child_vol.id)
+                            ZFSUtil.promote(dbg, path_clone)
+                            db.update_volume_parent(child_vol.id, vdi.volume.parent_id)
+                            # snapshot path changes after promotion
+                            path = ZFSUtil.build_snap_path(sr, child_vol.id, vdi.volume.id)
+                            path_clone = _volume_path(sr, vdi.volume.id)
+                            ZFSUtil.destroy(dbg, path_clone)
+                        else:
+                            need_destroy_clone = True
+                            path = ZFSUtil.build_snap_path(sr, vdi.volume.id, vdi.volume.id)
+                            path_clone = _volume_path(sr, vdi.volume.id)
+                    else:
+                        path = _volume_path(sr, vdi.volume.id)
+                    ZFSUtil.destroy(dbg, path)
+                    if is_snapshot and need_destroy_clone:
+                        ZFSUtil.destroy(dbg, path_clone)
+                    db.delete_vdi(key)
+                with cb.db_context(opq) as db:
+                    cb.volumeDestroy(opq, str(vdi.volume.id))
+                    db.delete_volume(vdi.volume.id)
+
+    def stat(self, dbg, sr, key):
+        image_format = None
+        cb = self.callbacks
+        with VolumeContext(cb, sr, 'r') as opq:
+            with cb.db_context(opq) as db:
+                vdi = db.get_vdi_by_id(key)
+                image_format = ImageFormat.get_format(vdi.image_type)
+                # TODO: handle this better
+                # _vdi_sanitize(vdi, opq, db, cb)
+                is_snapshot = bool(vdi.volume.snap)
+                if is_snapshot:
+                    path = ZFSUtil.build_snap_path(sr, vdi.volume.id, vdi.volume.id)
+                else:
+                    path = _volume_path(sr, vdi.volume.id)
+                custom_keys = db.get_vdi_custom_keys(vdi.uuid)
+                vdi_uuid = vdi.uuid
+
+        psize = int(ZFSUtil.get_vsize(dbg, path))
+        vdi_uri = cb.getVolumeUriPrefix(opq) + vdi_uuid
+        return {
+            'uuid': vdi.uuid,
+            'key': vdi.uuid,
+            'name': vdi.name,
+            'description': vdi.description,
+            'read_write': not bool(vdi.volume.snap),
+            'virtual_size': vdi.volume.vsize,
+            'physical_utilisation': psize,
+            'uri': [image_format.uri_prefix + vdi_uri],
+            'keys': custom_keys,
+            'sharable': False
+        }
+
+    def snapshot(self, dbg, sr, key):
+        snap_uuid = str(uuid.uuid4())
+        cb = self.callbacks
+        with VolumeContext(cb, sr, 'w') as opq:
+            result_volume_id = ''
+            with PollLock(opq, 'gl', cb, 0.5):
+                with cb.db_context(opq) as db:
+                    vdi = db.get_vdi_by_id(key)
+                    image_format = ImageFormat.get_format(vdi.image_type)
+                    image_utils = image_format.image_utils
+
+                    vol_id = (vdi.volume.id if vdi.volume.snap == 0 else
+                              vdi.volume.parent_id)
+
+                    vol_path = cb.volumeGetPath(opq, str(vol_id))
+
+                    # snapshot inherits volume's parent
+                    if vdi.volume.parent_id == None:
+                        snap_volume = db.insert_new_volume(vdi.volume.vsize, vdi.image_type)
+                    else:
+                        snap_volume = db.insert_child_volume(vdi.volume.parent_id,
+                                                         vdi.volume.vsize)
+                    db.set_volume_as_snapshot(snap_volume.id)
+                    db.insert_vdi(vdi.name, vdi.description,
+                                  snap_uuid, snap_volume.id, False)
+
+                    db.update_volume_parent(vdi.volume.id, snap_volume.id)
+
+                    result_volume_id = str(snap_volume.id)
+                    ZFSUtil.snapshot(dbg, str(snap_volume.id),
+                                 _volume_path(sr, vdi.volume.id), False)
+                    path = ZFSUtil.build_snap_path(sr, vdi.volume.id, snap_volume.id)
+
+                    # clone volume and promote it to enable to destroy volume and r/w access
+                    snap_path = _volume_path(sr, snap_volume.id)
+                    ZFSUtil.clone(dbg, path, snap_path)
+                    ZFSUtil.promote(dbg, snap_path)
+
+        new_snap_path = ZFSUtil.build_snap_path(sr, snap_volume.id, snap_volume.id)
+        psize = int(ZFSUtil.get_vsize(dbg, new_snap_path))
+
+        snap_uri = cb.getVolumeUriPrefix(opq) + snap_uuid
+        return {
+            'uuid': snap_uuid,
+            'key': snap_uuid,
+            'name': result_volume_id,
+            'description': vdi.description,
+            'read_write': False,
+            'virtual_size': vdi.volume.vsize,
+            'physical_utilisation': psize,
+            'uri': [image_format.uri_prefix + snap_uri],
+            'keys': {},
+            'sharable': False
+        }
+
+    # clone only works on snapshots
+    # fails otherwise
+    def clone(self, dbg, sr, key):
+        snap_uuid = str(uuid.uuid4())
+        cb = self.callbacks
+        with VolumeContext(cb, sr, 'w') as opq:
+            result_volume_id = ''
+            with PollLock(opq, 'gl', cb, 0.5):
+                with cb.db_context(opq) as db:
+                    vdi = db.get_vdi_by_id(key)
+                    if not vdi.volume.snap:
+                        log.error('Only snapshots can be cloned!')
+                        raise Exception('Only snapshots can be cloned!')
+                    image_format = ImageFormat.get_format(vdi.image_type)
+                    image_utils = image_format.image_utils
+                    cloned_volume = db.insert_new_volume(vdi.volume.vsize, vdi.image_type)
+
+                    # clone parent is the snapshot
+                    db.insert_vdi(
+                        vdi.name, vdi.description, snap_uuid, cloned_volume.id, False)
+                    db.update_volume_parent(cloned_volume.id, vdi.volume.id)
+
+                    result_volume_id = str(cloned_volume.id)
+                    snap_path = ZFSUtil.build_snap_path(sr, vdi.volume.id, vdi.volume.id)
+                    clone_path = _volume_path(sr, result_volume_id)
+                    ZFSUtil.clone(dbg, snap_path, clone_path)
+
+        psize = int(ZFSUtil.get_vsize(dbg, clone_path))
+        snap_uri = cb.getVolumeUriPrefix(opq) + snap_uuid
+        return {
+            'uuid': snap_uuid,
+            'key': snap_uuid,
+            'name': result_volume_id,
+            'description': vdi.description,
+            'read_write': True,
+            'virtual_size': vdi.volume.vsize,
+            'physical_utilisation': psize,
+            'uri': [image_format.uri_prefix + snap_uri],
+            'keys': {},
+            'sharable': False
+        }
+
+def call_volume_command():
+    """Parse the arguments and call the required command"""
+    log.log_call_argv()
+    fsp = importlib.import_module("zfs-ng")
+    cmd = xapi.storage.api.v5.volume.Volume_commandline(
+        Implementation(fsp.Callbacks()))
+    base = os.path.basename(sys.argv[0])
+    if base == "Volume.create":
+        cmd.create()
+    elif base == "Volume.clone":
+        cmd.clone()
+    elif base == "Volume.destroy":
+        cmd.destroy()
+    elif base == "Volume.set":
+        cmd.set()
+    elif base == "Volume.set_description":
+        cmd.set_description()
+    elif base == "Volume.set_name":
+        cmd.set_name()
+    elif base == "Volume.snapshot":
+        cmd.snapshot()
+    elif base == "Volume.stat":
+        cmd.stat()
+    elif base == "Volume.unset":
+        cmd.unset()
+    else:
+        raise xapi.storage.api.v5.volume.Unimplemented(base)
+
+
+if __name__ == "__main__":
+    call_volume_command()

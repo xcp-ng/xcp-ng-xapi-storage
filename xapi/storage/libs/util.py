@@ -24,7 +24,7 @@ class CommandException(Exception):
         self.code = code
         self.cmd = cmd
         self.reason = reason
-        Exception.__init__(self, os.strerror(abs(code)))
+        Exception.__init__(self, reason)
 
 
 def mkdir_p(path, mode=0o777):
@@ -397,6 +397,11 @@ def set_cgroup(pid, cgroup):
     except subprocess.CalledProcessError as e:
         log.error('Unable to set cgroup {} of {}: {}'.format(cgroup, pid, e))
 
+def is_parameter_true(configuration, param):
+    if param in configuration:
+        return configuration.get(param) in ['true', 't', 'on', '1', 'yes']
+    else:
+        return False
 
 class TimeoutException(Exception):
     pass
