@@ -73,6 +73,15 @@ class ZFSUtil(COWUtil):
         return call(dbg, cmd)
 
     @staticmethod
+    def resize(dbg, vol_path, new_size):
+        volsize = 'volsize=' + str(new_size)
+        cmd = [
+            ZFS_UTIL_BIN, 'set',
+            volsize, vol_path
+        ]
+        return call(dbg, cmd)
+
+    @staticmethod
     def snapshot(dbg, snap_name, parent_path, force_parent_link):
         path = parent_path + '@' + snap_name
         cmd = [

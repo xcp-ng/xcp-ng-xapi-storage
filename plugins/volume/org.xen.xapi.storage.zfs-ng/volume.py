@@ -98,6 +98,15 @@ class Implementation(DefaultImplementation):
                     cb.volumeDestroy(opq, str(vdi.volume.id))
                     db.delete_volume(vdi.volume.id)
 
+    def resize(self, dbg, sr, key, new_size):
+        cb = self.callbacks
+        with VolumeContext(cb, sr, 'r') as opq:
+            with cb.db_context(opq) as db:
+                vdi = db.get_vdi_by_id(key)
+                path = _volume_path(sr, vdi.volume.id)
+                db.update_volume_vsize(vdi.volume.id, new_size)
+                ZFSUtil.resize(dbg, path, new_size)
+
     def stat(self, dbg, sr, key):
         image_format = None
         cb = self.callbacks
@@ -240,6 +249,8 @@ def call_volume_command():
         cmd.clone()
     elif base == "Volume.destroy":
         cmd.destroy()
+    elif base == "Volume.resize":
+        cmd.resize()
     elif base == "Volume.set":
         cmd.set()
     elif base == "Volume.set_description":
