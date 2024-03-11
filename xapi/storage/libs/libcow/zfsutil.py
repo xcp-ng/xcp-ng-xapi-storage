@@ -43,11 +43,31 @@ class ZFSUtil(COWUtil):
         return call(dbg, cmd);
 
     @staticmethod
+    def get_sr_size(dbg, sr_path):
+        # size is returned in bytes
+        cmd = [
+            ZPOOL_UTIL_BIN, 'get',
+            '-o', 'value', '-Hp', 'size',
+            sr_path
+        ]
+        return call(dbg, cmd)
+
+    @staticmethod
+    def get_sr_free_space(dbg, sr_path):
+        # size is returned in bytes
+        cmd = [
+            ZPOOL_UTIL_BIN, 'get',
+            '-o', 'value', '-Hp', 'free',
+            sr_path
+        ]
+        return call(dbg, cmd)
+
+    @staticmethod
     def get_vsize(dbg, vol_path):
         # size is returned in bytes
         cmd = [
             ZFS_UTIL_BIN, 'get',
-            '-o', 'value', '-Hp', 'used',
+            '-o', 'value', '-Hp', 'volsize',
             vol_path
         ]
         return call(dbg, cmd)

@@ -153,9 +153,8 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         #    raise xapi.storage.api.v5.volume.Sr_not_attached(sr)
         meta = util.get_sr_metadata(dbg, 'file://' + sr)
 
-        psize = int(ZFSUtil.get_vsize(dbg, ZFSUtil.sr_name(meta)))
-        # in a vol, fsize is the whole volume
-        fsize = psize
+        psize = int(ZFSUtil.get_sr_size(dbg, ZFSUtil.sr_name(meta)))
+        fsize = int(ZFSUtil.get_sr_free_space(dbg, ZFSUtil.sr_name(meta)))
 
         return {
             'sr': sr,
