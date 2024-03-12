@@ -117,7 +117,7 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
                 if is_snapshot:
                     path = ZFSUtil.build_snap_path(sr, vdi.volume.parent_id, vdi.volume.id)
                 else:
-                    path = os.path.basename(sr) + '/' + str(vdi.volume.id)
+                    path = "sr-" + os.path.basename(sr) + '/' + str(vdi.volume.id)
                 psize = int(ZFSUtil.get_vsize(dbg, path))
 
                 vdi_uri = cb.getVolumeUriPrefix(opq) + vdi.uuid
