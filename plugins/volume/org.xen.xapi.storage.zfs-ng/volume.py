@@ -155,17 +155,10 @@ class Implementation(DefaultImplementation):
 
                     vol_path = cb.volumeGetPath(opq, str(vol_id))
 
-                    # snapshot inherits volume's parent
-                    if vdi.volume.parent_id == None:
-                        snap_volume = db.insert_new_volume(vdi.volume.vsize, vdi.image_type)
-                    else:
-                        snap_volume = db.insert_child_volume(vdi.volume.parent_id,
-                                                         vdi.volume.vsize)
-                    db.set_volume_as_snapshot(snap_volume.id)
+                    snap_volume = db.insert_child_volume(vol_id, vdi.volume.vsize,
+                                                         is_snapshot=True)
                     db.insert_vdi(vdi.name, vdi.description,
-                                  snap_uuid, snap_volume.id, False)
-
-                    db.update_volume_parent(vdi.volume.id, snap_volume.id)
+                                  snap_uuid, snap_volume.id, vdi.sharable)
 
                     result_volume_id = str(snap_volume.id)
                     ZFSUtil.snapshot(dbg, str(snap_volume.id),
@@ -209,12 +202,14 @@ class Implementation(DefaultImplementation):
                         raise Exception('Only snapshots can be cloned!')
                     image_format = ImageFormat.get_format(vdi.image_type)
                     image_utils = image_format.image_utils
-                    cloned_volume = db.insert_new_volume(vdi.volume.vsize, vdi.image_type)
+
+                    vol_id = (vdi.volume.id if vdi.volume.snap == 0 else
+                              vdi.volume.parent_id)
+                    cloned_volume = db.insert_child_volume(vol_id, vdi.volume.vsize)
 
                     # clone parent is the snapshot
-                    db.insert_vdi(
-                        vdi.name, vdi.description, snap_uuid, cloned_volume.id, False)
-                    db.update_volume_parent(cloned_volume.id, vdi.volume.id)
+                    db.insert_vdi(vdi.name, vdi.description,
+                                  snap_uuid, cloned_volume.id, vdi.sharable)
 
                     result_volume_id = str(cloned_volume.id)
                     snap_path = ZFSUtil.build_snap_path(sr, vdi.volume.id, vdi.volume.id)
