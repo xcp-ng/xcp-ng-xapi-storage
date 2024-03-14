@@ -57,9 +57,13 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         importlib.import_module('zfs-ng').Callbacks().create_database(mountpoint)
 
         meta = {
+            # mandatory elements we need everywhere
             'name': name,
             'description': description,
             'uuid': sr_uuid,
+            # pool name may not always be derived from mountpoint or
+            # sr_uuid, esp. when creating with "zpool=$PREBUILT_POOL"
+            'zpool': pool_name,
         }
         util.update_sr_metadata(dbg, 'file://' + mountpoint, meta)
 
@@ -79,6 +83,29 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         return zfsutils.pool_mountpoint(dbg, configuration["zpool"])
 
 
+    def stat(self, dbg, sr):
+        # TODO: replace this with a check if it is a device
+        #if not os.path.isdir(sr):
+        #    raise xapi.storage.api.v5.volume.Sr_not_attached(sr)
+        meta = util.get_sr_metadata(dbg, 'file://' + sr)
+        pool_name = meta["zpool"]
+
+        # FIXME a single zpool-get call would be faster
+        psize = zfsutils.pool_get_size(dbg, pool_name)
+        fsize = zfsutils.pool_get_free_space(dbg, pool_name) # FIXME is that the expected datapoint?
+
+        return {
+            'sr': sr,
+            'name': meta['name'],
+            'description': meta['description'],
+            'total_space': psize,
+            'free_space': fsize,
+            'uuid': meta['uuid'],
+            'datasources': [],  # FIXME doublecheck
+            'clustered': False,
+            'health': ['Healthy', ''] # FIXME
+        }
+
 
 if __name__ == '__main__':
     log.log_call_argv()
@@ -88,5 +115,7 @@ if __name__ == '__main__':
         cmd.create()
     elif base == 'SR.attach':
         cmd.attach()
+    elif base == 'SR.stat':
+        cmd.stat()
     else:
         raise xapi.storage.api.v5.volume.Unimplemented(base)
