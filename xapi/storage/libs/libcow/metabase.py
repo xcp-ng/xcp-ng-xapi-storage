@@ -51,10 +51,18 @@ class Volume(object):
     def __init__(self, volume_id, parent, snap, vsize, psize, image_type):
         self.id = volume_id
         self.parent_id = parent
-        self.snap = snap
+        self.__snap = snap
         self.vsize = vsize
         self.psize = psize
         self.image_type = image_type
+        log.debug("Volume(volume_id=%r, parent=%r, snap=%r, vsize=%r, psize=%r, image_type=%r)", volume_id, parent, snap, vsize, psize, image_type)
+        assert snap in [True, False, 0, 1]
+        #if snap:
+        #    assert parent is not None, "creating a snapshot Volume without parent_id"
+
+    @property
+    def snap(self):
+        return self.__snap
 
     @classmethod
     def from_row(cls, row):
@@ -415,7 +423,7 @@ class VolumeMetabase(object):
         """
         Add a new volume record
         """
-        return self.__insert_volume(None, None, vsize, None, image_type)
+        return self.__insert_volume(None, 0, vsize, None, image_type)
 
     def insert_child_volume(self, parent_id, vsize, is_snapshot=False):
         """
