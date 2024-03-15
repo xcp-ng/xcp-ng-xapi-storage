@@ -139,6 +139,10 @@ def call_volume_command():
         cmd.set()
     elif base == "Volume.unset":
         cmd.unset()
+    elif base == "Volume.set_name":
+        cmd.set_name()
+    elif base == "Volume.set_description":
+        cmd.set_description()
     else:
         raise xapi.storage.api.v5.volume.Unimplemented(base)
 
