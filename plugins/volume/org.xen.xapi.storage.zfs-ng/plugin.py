@@ -22,6 +22,7 @@ class Implementation(xapi.storage.api.v5.plugin.Plugin_skeleton):
             "features": [
                 "VDI_CREATE",
                 "VDI_DESTROY",
+                "VDI_RESIZE",
             ],
             "configuration": {},
             "required_cluster_stack": []}
