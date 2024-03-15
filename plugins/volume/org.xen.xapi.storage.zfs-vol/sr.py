@@ -105,11 +105,10 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
             with cb.db_context(opq) as db:
                 vdis = db.get_all_vdis()
                 all_custom_keys = db.get_all_vdi_custom_keys()
+                for vdi in vdis:
+                    zfsutils.zfsvol_vdi_sanitize(vdi, db)
 
             for vdi in vdis:
-                # TODO: handle this better
-                # _vdi_sanitize(vdi, opq, db, cb)
-
                 image_format = ImageFormat.get_format(vdi.image_type)
                 is_snapshot = bool(vdi.volume.snap)
                 assert not is_snapshot, "snapshots not implemented yet"

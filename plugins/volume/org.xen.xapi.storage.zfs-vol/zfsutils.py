@@ -50,6 +50,11 @@ def vol_get_used(dbg, vol_name):
     cmd = "zfs get -Hp -o value used".split() + [ vol_name ]
     return int(call(dbg, cmd))
 
+def vol_get_size(dbg, vol_name):
+    # size is returned in bytes
+    cmd = "zfs get -Hp -o value volsize".split() + [ vol_name ]
+    return int(call(dbg, cmd))
+
 def vol_create(dbg, zvol_path, size_mib):
     cmd = ("zfs create -s".split() + [zvol_path]
            + ['-V', str(size_mib)]
@@ -59,3 +64,24 @@ def vol_create(dbg, zvol_path, size_mib):
 def vol_destroy(dbg, zvol_path):
     cmd = "zfs destroy".split() + [zvol_path]
     call(dbg, cmd)
+
+def vol_resize(dbg, vol_path, new_size):
+    cmd = "zfs set".split() + ['volsize={}'.format(new_size), vol_path]
+    call(dbg, cmd)
+
+###
+
+# this is really tied to the SR itself and not to ZFS itself, but
+# needs to be shared because of SR.ls
+
+def zfsvol_vdi_sanitize(vdi, db):
+    """Sanitize vdi metadata object
+
+    When retrieving vdi metadata from the database, it is possible
+    that 'vsize' is 'None', if we crashed during a resize operation.
+    In this case, query the underlying volume and update 'vsize', both
+    in the object and the database
+    """
+    if vdi.volume.vsize is None:
+        vdi.volume.vsize = vol_get_size(dbg, vol_name)
+        db.update_volume_vsize(vdi.volume.id, vdi.volume.vsize)

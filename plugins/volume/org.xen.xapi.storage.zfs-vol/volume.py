@@ -70,6 +70,7 @@ class Implementation(DefaultImplementation):
             with PollLock(opq, 'gl', cb, 0.5):
                 with cb.db_context(opq) as db:
                     vdi = db.get_vdi_by_id(key)
+                    zfsutils.zfsvol_vdi_sanitize(vdi, db)
                     is_snapshot = vdi.volume.snap
                     assert not is_snapshot, "snapshots not implemented yet"
 
@@ -80,6 +81,31 @@ class Implementation(DefaultImplementation):
                     cb.volumeDestroy(opq, str(vdi.volume.id))
                     db.delete_volume(vdi.volume.id)
 
+    def resize(self, dbg, sr, key, new_size):
+        meta = util.get_sr_metadata(dbg, 'file://' + sr)
+        pool_name = meta["zpool"]
+
+        cb = self.callbacks
+        with VolumeContext(cb, sr, 'r') as opq:
+            with cb.db_context(opq) as db:
+                vdi = db.get_vdi_by_id(key)
+                zfsutils.zfsvol_vdi_sanitize(vdi, db)
+                if new_size < vdi.volume.vsize:
+                    log.error("Volume cannot be shrunk from {} to {}".
+                              format(vdi.volume.vsize, new_size))
+                    raise util.create_storage_error("SR_BACKEND_FAILURE_79",
+                                                    ["VDI Invalid size",
+                                                     "shrinking not allowed"])
+                db.update_volume_vsize(vdi.volume.id, None)
+            with cb.db_context(opq) as db:
+                vol_name = zfsutils.zvol_path(pool_name, vdi.volume.id)
+                zfsutils.vol_resize(dbg, vol_name, new_size)
+                vdi.volume.vsize = zfsutils.vol_get_size(dbg, vol_name)
+                if vdi.volume.vsize != new_size:
+                    log.debug("%s: VDI.resize adjusted requested size %s to %s",
+                              dbg, size, vdi.volume.vsize)
+                db.update_volume_vsize(vdi.volume.id, vdi.volume.vsize)
+
     def stat(self, dbg, sr, key):
         meta = util.get_sr_metadata(dbg, 'file://' + sr)
         pool_name = meta["zpool"]
@@ -88,6 +114,7 @@ class Implementation(DefaultImplementation):
         with VolumeContext(cb, sr, 'r') as opq:
             with cb.db_context(opq) as db:
                 vdi = db.get_vdi_by_id(key)
+                zfsutils.zfsvol_vdi_sanitize(vdi, db)
                 image_format = ImageFormat.get_format(vdi.image_type)
                 is_snapshot = vdi.volume.snap
                 assert not is_snapshot, "snapshots not implemented yet"
@@ -120,6 +147,8 @@ def call_volume_command():
         cmd.create()
     elif base == "Volume.destroy":
         cmd.destroy()
+    elif base == "Volume.resize":
+        cmd.resize()
     elif base == "Volume.stat":
         cmd.stat()
     elif base == "Volume.set":
