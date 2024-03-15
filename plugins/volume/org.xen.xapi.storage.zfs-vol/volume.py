@@ -60,6 +60,26 @@ class Implementation(DefaultImplementation):
             'keys': {}
         }
 
+    def destroy(self, dbg, sr, key):
+        meta = util.get_sr_metadata(dbg, 'file://' + sr)
+        pool_name = meta["zpool"]
+
+        cb = self.callbacks
+        need_destroy_clone = False
+        with VolumeContext(cb, sr, 'w') as opq:
+            with PollLock(opq, 'gl', cb, 0.5):
+                with cb.db_context(opq) as db:
+                    vdi = db.get_vdi_by_id(key)
+                    is_snapshot = vdi.volume.snap
+                    assert not is_snapshot, "snapshots not implemented yet"
+
+                    vol_name = zfsutils.zvol_path(pool_name, vdi.volume.id)
+                    zfsutils.vol_destroy(dbg, vol_name)
+                    db.delete_vdi(key)
+
+                    cb.volumeDestroy(opq, str(vdi.volume.id))
+                    db.delete_volume(vdi.volume.id)
+
     def stat(self, dbg, sr, key):
         meta = util.get_sr_metadata(dbg, 'file://' + sr)
         pool_name = meta["zpool"]
@@ -98,6 +118,8 @@ def call_volume_command():
     base = os.path.basename(sys.argv[0])
     if base == "Volume.create":
         cmd.create()
+    elif base == "Volume.destroy":
+        cmd.destroy()
     elif base == "Volume.stat":
         cmd.stat()
     elif base == "Volume.set":
