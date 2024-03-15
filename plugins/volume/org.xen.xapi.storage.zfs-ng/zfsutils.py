@@ -45,3 +45,7 @@ def vol_create(dbg, zvol_path, size_mib):
            + ['-V', str(size_mib)]
            )
     return call(dbg, cmd)
+
+def vol_destroy(dbg, zvol_path):
+    cmd = "zfs destroy".split() + [zvol_path]
+    return call(dbg, cmd)
