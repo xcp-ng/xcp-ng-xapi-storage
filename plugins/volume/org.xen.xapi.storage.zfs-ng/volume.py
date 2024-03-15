@@ -55,6 +55,39 @@ class Implementation(DefaultImplementation):
             'keys': {}
         }
 
+    def stat(self, dbg, sr, key):
+        meta = util.get_sr_metadata(dbg, 'file://' + sr)
+        pool_name = meta["zpool"]
+
+        image_format = None
+        cb = self.callbacks
+        with VolumeContext(cb, sr, 'r') as opq:
+            with cb.db_context(opq) as db:
+                vdi = db.get_vdi_by_id(key)
+                image_format = ImageFormat.get_format(vdi.image_type)
+                # TODO: handle this better
+                # _vdi_sanitize(vdi, opq, db, cb)
+                is_snapshot = vdi.volume.snap
+                assert not is_snapshot, "snapshots not implemented yet"
+                vol_name = zfsutils.zvol_path(pool_name, vdi.volume.id)
+                custom_keys = db.get_vdi_custom_keys(vdi.uuid)
+
+        psize = zfsutils.vol_get_used(dbg, vol_name) # FIXME check
+        vdi_uri = cb.getVolumeUriPrefix(opq) + vdi.uuid
+
+        return {
+            'uuid': vdi.uuid,
+            'key': vdi.uuid,    # FIXME check this
+            'name': vdi.name,
+            'description': vdi.description,
+            'read_write': not is_snapshot,
+            'virtual_size': vdi.volume.vsize,
+            'physical_utilisation': psize,
+            'uri': [image_format.uri_prefix + vdi_uri],
+            'keys': custom_keys,
+            'sharable': False
+        }
+
 def call_volume_command():
     """Parse the arguments and call the required command"""
     log.log_call_argv()
@@ -64,6 +97,8 @@ def call_volume_command():
     base = os.path.basename(sys.argv[0])
     if base == "Volume.create":
         cmd.create()
+    elif base == "Volume.stat":
+        cmd.stat()
     elif base == "Volume.set":
         cmd.set()
     elif base == "Volume.unset":
