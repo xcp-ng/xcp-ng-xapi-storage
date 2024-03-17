@@ -33,6 +33,7 @@ class Implementation(xapi.storage.api.v5.plugin.Plugin_skeleton):
                 "VDI_UPDATE",
                 "VDI_CLONE",
                 "VDI_SNAPSHOT",
+                "VDI_RESIZE",
                 "SR_METADATA"],
             "configuration": {},
             "required_cluster_stack": []}
