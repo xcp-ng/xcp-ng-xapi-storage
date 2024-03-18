@@ -72,3 +72,7 @@ def vol_resize(dbg, vol_path, new_size):
 def vol_snapshot(dbg, snap_name):
     cmd = "zfs snapshot".split() + [snap_name]
     call(dbg, cmd)
+
+def vol_clone(dbg, snap_name, clone_name):
+    cmd = "zfs clone".split() + [snap_name, clone_name]
+    call(dbg, cmd)
