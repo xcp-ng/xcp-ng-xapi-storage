@@ -120,6 +120,45 @@ class Implementation(DefaultImplementation):
             'sharable': False
         }
 
+    def snapshot(self, dbg, sr, key):
+        meta = util.get_sr_metadata(dbg, 'file://' + sr)
+        pool_name = meta["zpool"]
+
+        snap_uuid = str(uuid.uuid4())
+        cb = self.callbacks
+        with VolumeContext(cb, sr, 'w') as opq:
+            with PollLock(opq, 'gl', cb, 0.5):
+                with cb.db_context(opq) as db:
+                    vdi = db.get_vdi_by_id(key)
+                    image_format = ImageFormat.get_format(vdi.image_type)
+
+                    vol_id = (vdi.volume.id if vdi.volume.snap == 0 else
+                              vdi.volume.parent_id)
+
+                    snap_volume = db.insert_child_volume(vol_id, vdi.volume.vsize,
+                                                         is_snapshot=True)
+                    snap_name = zfsutils.zvol_snap_path(pool_name, vol_id, snap_volume.id)
+
+                    zfsutils.vol_snapshot(dbg, snap_name)
+
+                    db.insert_vdi(vdi.name, vdi.description,
+                                  snap_uuid, snap_volume.id, vdi.sharable)
+
+        psize = zfsutils.vol_get_used(dbg, snap_name) # FIXME check
+        snap_uri = cb.getVolumeUriPrefix(opq) + snap_uuid
+        return {
+            'uuid': snap_uuid,
+            'key': snap_uuid,
+            'name': str(snap_volume.id),
+            'description': vdi.description,
+            'read_write': False,
+            'virtual_size': vdi.volume.vsize,
+            'physical_utilisation': psize,
+            'uri': [image_format.uri_prefix + snap_uri],
+            'keys': {},
+            'sharable': False
+        }
+
 def call_volume_command():
     """Parse the arguments and call the required command"""
     log.log_call_argv()
@@ -133,6 +172,8 @@ def call_volume_command():
         cmd.destroy()
     elif base == "Volume.resize":
         cmd.resize()
+    elif base == "Volume.snapshot":
+        cmd.snapshot()
     elif base == "Volume.stat":
         cmd.stat()
     elif base == "Volume.set":
