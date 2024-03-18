@@ -10,6 +10,18 @@ def zvol_path(pool_name, vol_id):
 def zvol_snap_path(pool_name, vol_id, snap_id):
     return "{}/{}@{}".format(pool_name, vol_id, snap_id)
 
+# snapshot id is unique but full name will vary with "promote"
+# operations, so we have to walk the full list to know its current
+# name
+def zvol_find_snap_path(dbg, pool_name, snap_id):
+    cmd = "zfs list -t snapshot -Hp -o name".split()
+    snap_id = str(snap_id)
+    for this_snap_name in call(dbg, cmd).strip().splitlines():
+        this_base, this_snap_id = this_snap_name.split("@")
+        if this_snap_id == snap_id:
+            return this_snap_name
+    return None
+
 ###
 
 def pool_mountpoint(dbg, pool_name):
