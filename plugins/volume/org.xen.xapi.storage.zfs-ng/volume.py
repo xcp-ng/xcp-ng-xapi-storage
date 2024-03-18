@@ -66,6 +66,7 @@ class Implementation(DefaultImplementation):
                 with cb.db_context(opq) as db:
                     vdi = db.get_vdi_by_id(key)
                     is_snapshot = vdi.volume.snap
+                    also_destroy = None
                     if is_snapshot:
                         vol_name = zfsutils.zvol_find_snap_path(dbg, pool_name, vdi.volume.id)
                         if vol_name is None:
@@ -74,14 +75,21 @@ class Implementation(DefaultImplementation):
 
                         custom_keys = db.get_vdi_custom_keys(key)
                         if "zfs-clone" in custom_keys:
-                            clone_name = custom_keys["zfs-clone"]
-                            zfsutils.vol_destroy(dbg, clone_name)
+                            also_destroy = custom_keys["zfs-clone"]
                         else:
                             log.warning("snapshot VDI did not have a zfs-clone recorded")
                     else:
                         vol_name = zfsutils.zvol_path(pool_name, vdi.volume.id)
 
+                    # when destroying a snapshot, destroy it first (if
+                    # it is the last VDI in the chain, the snapshot
+                    # object cannot be destroyed last)
+                    # FIXME: to be adjusted when we create extra snapshot
+                    # for a clone
                     zfsutils.vol_destroy(dbg, vol_name)
+                    if also_destroy is not None:
+                        zfsutils.vol_destroy(dbg, also_destroy)
+
                     db.delete_vdi(key)
 
                     cb.volumeDestroy(opq, str(vdi.volume.id))
