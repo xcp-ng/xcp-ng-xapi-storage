@@ -109,8 +109,13 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
 
                 image_format = ImageFormat.get_format(vdi.image_type)
                 is_snapshot = bool(vdi.volume.snap)
-                assert not is_snapshot, "snapshots not implemented yet"
-                vol_name = zfsutils.zvol_path(pool_name, vdi.volume.id)
+                if is_snapshot:
+                    vol_name = zfsutils.zvol_find_snap_path(dbg, pool_name, vdi.volume.id)
+                    if vol_name is None:
+                        # FIXME is there a way to return an error entry instead?
+                        raise Exception("snapshot volume %s not found on disk" % (vdi.volume.id))
+                else:
+                    vol_name = zfsutils.zvol_path(pool_name, vdi.volume.id)
                 psize = zfsutils.vol_get_used(dbg, vol_name) # FIXME check
 
                 vdi_uri = cb.getVolumeUriPrefix(opq) + vdi.uuid
