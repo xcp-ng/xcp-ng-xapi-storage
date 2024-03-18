@@ -180,6 +180,51 @@ class Implementation(DefaultImplementation):
             'sharable': False
         }
 
+
+    def clone(self, dbg, sr, key):
+        meta = util.get_sr_metadata(dbg, 'file://' + sr)
+        pool_name = meta["zpool"]
+
+        clone_uuid = str(uuid.uuid4())
+        cb = self.callbacks
+        with VolumeContext(cb, sr, 'w') as opq:
+            with PollLock(opq, 'gl', cb, 0.5):
+                with cb.db_context(opq) as db:
+                    vdi = db.get_vdi_by_id(key)
+                    zfsutils.zfsvol_vdi_sanitize(vdi, db)
+                    if not vdi.volume.snap:
+                        raise Exception('Only snapshots can be cloned!')
+                    snap_name = zfsutils.zvol_find_snap_path(dbg, pool_name, vdi.volume.id)
+
+                    image_format = ImageFormat.get_format(vdi.image_type)
+                    image_utils = image_format.image_utils
+
+                    # (if this is a snapshot) we could want to take
+                    # the snap's parent_id as clone's parent, but it
+                    # might as well be destroyed already
+                    cloned_volume = db.insert_child_volume(vdi.volume.id, vdi.volume.vsize)
+
+                    clone_path = zfsutils.zvol_path(pool_name, cloned_volume.id)
+                    zfsutils.vol_clone(dbg, snap_name, clone_path)
+
+                    db.insert_vdi(vdi.name, vdi.description,
+                                  clone_uuid, cloned_volume.id, vdi.sharable)
+
+            clone_uri = cb.getVolumeUriPrefix(opq) + clone_uuid
+
+        return {
+            'uuid': clone_uuid,
+            'key': clone_uuid,
+            'name': str(cloned_volume.id),
+            'description': vdi.description,
+            'read_write': True,
+            'virtual_size': vdi.volume.vsize,
+            'physical_utilisation': zfsutils.vol_get_used(dbg, snap_name),
+            'uri': [image_format.uri_prefix + clone_uri],
+            'keys': {},
+            'sharable': False
+        }
+
 def call_volume_command():
     """Parse the arguments and call the required command"""
     log.log_call_argv()
@@ -195,6 +240,8 @@ def call_volume_command():
         cmd.resize()
     elif base == "Volume.snapshot":
         cmd.snapshot()
+    elif base == "Volume.clone":
+        cmd.clone()
     elif base == "Volume.stat":
         cmd.stat()
     elif base == "Volume.set":
