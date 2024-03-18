@@ -22,7 +22,7 @@ def zvol_find_snap_path(dbg, pool_name, snap_id):
             return this_snap_name
     return None
 
-def _zvol_ensure_destroyable(dbg, vol_name):
+def zvol_ensure_destroyable(dbg, vol_name):
     cmd = "zfs list -Hp -o name,origin".split()
 
     # a zvol depends on a snapshot if its origin is == to that
@@ -82,7 +82,6 @@ def vol_create(dbg, zvol_path, size_mib):
     return call(dbg, cmd)
 
 def vol_destroy(dbg, zvol_path):
-    _zvol_ensure_destroyable(dbg, zvol_path)
     cmd = "zfs destroy".split() + [zvol_path]
     return call(dbg, cmd)
 

@@ -84,10 +84,21 @@ class Implementation(DefaultImplementation):
                     # when destroying a snapshot, destroy it first (if
                     # it is the last VDI in the chain, the snapshot
                     # object cannot be destroyed last)
+                    # FIXME: when the snapshot "joins 2 zvols" this only swaps
+                    # them and does not fix anything, the extra also_destroy clone
+                    # needs to be destroyed first, but is this always sufficient?
                     # FIXME: to be adjusted when we create extra snapshot
                     # for a clone
+
+                    zfsutils.zvol_ensure_destroyable(dbg, vol_name)
+                    if is_snapshot:
+                        # a snapshot will have changed name after
+                        # promote when making sure it is destroyable,
+                        # so we must rescan
+                        vol_name = zfsutils.zvol_find_snap_path(dbg, pool_name, vdi.volume.id)
                     zfsutils.vol_destroy(dbg, vol_name)
                     if also_destroy is not None:
+                        zfsutils.zvol_ensure_destroyable(dbg, also_destroy)
                         zfsutils.vol_destroy(dbg, also_destroy)
 
                     db.delete_vdi(key)
