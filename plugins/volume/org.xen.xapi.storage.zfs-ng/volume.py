@@ -71,6 +71,13 @@ class Implementation(DefaultImplementation):
                         if vol_name is None:
                             raise Exception("zfs snapshot object %s/*@%s not found on disk" %
                                             (pool_name, vdi.volume.id))
+
+                        custom_keys = db.get_vdi_custom_keys(key)
+                        if "zfs-clone" in custom_keys:
+                            clone_name = custom_keys["zfs-clone"]
+                            zfsutils.vol_destroy(dbg, clone_name)
+                        else:
+                            log.warning("snapshot VDI did not have a zfs-clone recorded")
                     else:
                         vol_name = zfsutils.zvol_path(pool_name, vdi.volume.id)
 
@@ -147,11 +154,21 @@ class Implementation(DefaultImplementation):
                     snap_volume = db.insert_child_volume(vol_id, vdi.volume.vsize,
                                                          is_snapshot=True)
                     snap_name = zfsutils.zvol_snap_path(pool_name, vol_id, snap_volume.id)
-
                     zfsutils.vol_snapshot(dbg, snap_name)
+
+                    # Create a clone zvol to better map the notion of
+                    # VDI, which assumes every VDI can be destroyed
+                    # independently of whether it is a snapshot or
+                    # not.  So we e.g. can possibly destroy the origin VDI.
+                    # FIXME: consider? , is_snapshot=True)
+                    snap_clone_volume = db.insert_child_volume(snap_volume.id, vdi.volume.vsize)
+                    clone_name = zfsutils.zvol_path(pool_name, snap_clone_volume.id)
+                    zfsutils.vol_clone(dbg, snap_name, clone_name)
 
                     db.insert_vdi(vdi.name, vdi.description,
                                   snap_uuid, snap_volume.id, vdi.sharable)
+                    # sadly must happen after insert_vdi for foreign-key constaint
+                    db.set_vdi_custom_key(snap_uuid, "zfs-clone", clone_name)
 
         psize = zfsutils.vol_get_used(dbg, snap_name) # FIXME check
         snap_uri = cb.getVolumeUriPrefix(opq) + snap_uuid
