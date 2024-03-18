@@ -100,8 +100,12 @@ class Implementation(DefaultImplementation):
                 # TODO: handle this better
                 # _vdi_sanitize(vdi, opq, db, cb)
                 is_snapshot = vdi.volume.snap
-                assert not is_snapshot, "snapshots not implemented yet"
-                vol_name = zfsutils.zvol_path(pool_name, vdi.volume.id)
+                if is_snapshot:
+                    vol_name = zfsutils.zvol_find_snap_path(dbg, pool_name, vdi.volume.id)
+                    if vol_name is None:
+                        raise Exception("snapshot volume %s not found on disk" % (vdi.volume.id))
+                else:
+                    vol_name = zfsutils.zvol_path(pool_name, vdi.volume.id)
                 custom_keys = db.get_vdi_custom_keys(vdi.uuid)
 
         psize = zfsutils.vol_get_used(dbg, vol_name) # FIXME check
