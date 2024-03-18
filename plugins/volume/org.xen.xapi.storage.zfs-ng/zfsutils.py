@@ -7,6 +7,9 @@ MOUNT_ROOT = '/var/run/sr-mount'
 def zvol_path(pool_name, vol_id):
     return "{}/{}".format(pool_name, vol_id)
 
+def zvol_snap_path(pool_name, vol_id, snap_id):
+    return "{}/{}@{}".format(pool_name, vol_id, snap_id)
+
 ###
 
 def pool_mountpoint(dbg, pool_name):
@@ -52,4 +55,8 @@ def vol_destroy(dbg, zvol_path):
 
 def vol_resize(dbg, vol_path, new_size):
     cmd = "zfs set".split() + ['volsize={}'.format(new_size), vol_path]
+    call(dbg, cmd)
+
+def vol_snapshot(dbg, snap_name):
+    cmd = "zfs snapshot".split() + [snap_name]
     call(dbg, cmd)
