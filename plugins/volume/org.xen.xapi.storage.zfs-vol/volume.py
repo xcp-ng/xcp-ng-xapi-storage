@@ -117,8 +117,12 @@ class Implementation(DefaultImplementation):
                 zfsutils.zfsvol_vdi_sanitize(vdi, db)
                 image_format = ImageFormat.get_format(vdi.image_type)
                 is_snapshot = vdi.volume.snap
-                assert not is_snapshot, "snapshots not implemented yet"
-                vol_name = zfsutils.zvol_path(pool_name, vdi.volume.id)
+                if is_snapshot:
+                    vol_name = zfsutils.zvol_find_snap_path(dbg, pool_name, vdi.volume.id)
+                    if vol_name is None:
+                        raise Exception("snapshot volume %s not found on disk" % (vdi.volume.id))
+                else:
+                    vol_name = zfsutils.zvol_path(pool_name, vdi.volume.id)
                 custom_keys = db.get_vdi_custom_keys(vdi.uuid)
 
             vdi_uri = cb.getVolumeUriPrefix(opq) + vdi.uuid
