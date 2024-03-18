@@ -66,9 +66,14 @@ class Implementation(DefaultImplementation):
                 with cb.db_context(opq) as db:
                     vdi = db.get_vdi_by_id(key)
                     is_snapshot = vdi.volume.snap
-                    assert not is_snapshot, "snapshots not implemented yet"
+                    if is_snapshot:
+                        vol_name = zfsutils.zvol_find_snap_path(dbg, pool_name, vdi.volume.id)
+                        if vol_name is None:
+                            raise Exception("zfs snapshot object %s/*@%s not found on disk" %
+                                            (pool_name, vdi.volume.id))
+                    else:
+                        vol_name = zfsutils.zvol_path(pool_name, vdi.volume.id)
 
-                    vol_name = zfsutils.zvol_path(pool_name, vdi.volume.id)
                     zfsutils.vol_destroy(dbg, vol_name)
                     db.delete_vdi(key)
 
