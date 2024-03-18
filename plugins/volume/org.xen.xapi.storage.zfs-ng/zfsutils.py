@@ -24,10 +24,21 @@ def zvol_find_snap_path(dbg, pool_name, snap_id):
 
 def _zvol_ensure_destroyable(dbg, vol_name):
     cmd = "zfs list -Hp -o name,origin".split()
-    pattern = vol_name + "@"
+
+    # a zvol depends on a snapshot if its origin is == to that
+    # snapshot, and depends on another zvol if its origin is a
+    # snapshot of that zvol
+    if "@" in vol_name:
+        def matches(origin):
+            return origin == vol_name
+    else:
+        pattern = vol_name + "@"
+        def matches(origin):
+            return origin.startswith(pattern)
+
     for entry in call(dbg, cmd).strip().splitlines():
         zvol, origin = entry.split("\t")
-        if origin.startswith(pattern):
+        if matches(origin):
             vol_promote(dbg, zvol)
             break
 
