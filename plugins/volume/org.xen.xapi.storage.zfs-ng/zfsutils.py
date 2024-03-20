@@ -32,6 +32,9 @@ def call(dbg, cmd_args, error=True, simple=True, expRc=0,
             return stdout
         return stdout, stderr, proc.returncode
 
+def call_retry(dbg, cmd_args, error=True, simple=True, expRc=0):
+    return call(dbg, cmd_args, error=error, simple=simple, expRc=expRc, ntries=10)
+
 ###
 
 MOUNT_ROOT = '/var/run/sr-mount'
@@ -83,7 +86,7 @@ def pool_create(dbg, pool_name, devs):
 
 def pool_destroy(dbg, pool_name):
     cmd = "zpool destroy".split() + [pool_name]
-    call(dbg, cmd)
+    call_retry(dbg, cmd)
 
 def pool_get_size(dbg, sr_path):
     # size is returned in bytes
@@ -106,24 +109,24 @@ def vol_create(dbg, zvol_path, size_mib):
     cmd = ("zfs create".split() + [zvol_path]
            + ['-V', str(size_mib)]
            )
-    call(dbg, cmd)
+    call_retry(dbg, cmd)
 
 def vol_destroy(dbg, zvol_path):
     cmd = "zfs destroy".split() + [zvol_path]
-    call(dbg, cmd)
+    call_retry(dbg, cmd)
 
 def vol_promote(dbg, zvol_path):
     cmd = "zfs promote".split() + [zvol_path]
-    call(dbg, cmd)
+    call_retry(dbg, cmd)
 
 def vol_resize(dbg, vol_path, new_size):
     cmd = "zfs set".split() + ['volsize={}'.format(new_size), vol_path]
-    call(dbg, cmd)
+    call_retry(dbg, cmd)
 
 def vol_snapshot(dbg, snap_name):
     cmd = "zfs snapshot".split() + [snap_name]
-    call(dbg, cmd)
+    call_retry(dbg, cmd)
 
 def vol_clone(dbg, snap_name, clone_name):
     cmd = "zfs clone".split() + [snap_name, clone_name]
-    call(dbg, cmd)
+    call_retry(dbg, cmd)
