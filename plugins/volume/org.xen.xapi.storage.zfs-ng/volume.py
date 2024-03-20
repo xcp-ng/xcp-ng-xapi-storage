@@ -66,25 +66,36 @@ class Implementation(DefaultImplementation):
                 with cb.db_context(opq) as db:
                     vdi = db.get_vdi_by_id(key)
                     is_snapshot = vdi.volume.snap
-                    assert not is_snapshot, "snapshots not implemented yet"
+                    if is_snapshot:
+                        snap_name = zfsutils.zvol_find_snap_path(dbg, pool_name, vdi.volume.id)
+                        zfsutils.zpool_log_state(dbg, "before destroy {}".format(snap_name), pool_name)
+                        if snap_name is None:
+                            raise Exception("zfs snapshot object %s/*@%s not found on disk" %
+                                            (pool_name, vdi.volume.id))
+                        if tuple(zfsutils.zsnap_get_dependencies(dbg, snap_name)):
+                            raise Exception("zfs snapshot %s destruction blocked by clones" %
+                                            (snap_name,))
 
-                    vol_name = zfsutils.zvol_path(pool_name, vdi.volume.id)
-                    zfsutils.zpool_log_state(dbg, "before destroy {}".format(vol_name), pool_name)
-                    # for each snapshot select a clone
-                    vol_dependencies = []
-                    for vol_snap in zfsutils.zvol_get_snaphots(dbg, vol_name):
-                        snap_dependencies = tuple(zfsutils.zsnap_get_dependencies(dbg, vol_snap))
-                        if snap_dependencies:
-                            vol_dependencies.append(snap_dependencies[0])
-                        else:
-                            raise Exception(
-                                "zfs volume %s destruction blocked by uncloned snapshot %s" %
-                                (vol_name, vol_snap))
-                    if vol_dependencies:
-                        for dep in vol_dependencies:
-                            zfsutils.vol_promote(dbg, dep)
-                        zfsutils.zpool_log_state(dbg, "after promotions", pool_name)
-                    zfsutils.vol_destroy(dbg, vol_name)
+                        zfsutils.vol_destroy(dbg, snap_name)
+                    else:
+                        vol_name = zfsutils.zvol_path(pool_name, vdi.volume.id)
+                        zfsutils.zpool_log_state(dbg, "before destroy {}".format(vol_name), pool_name)
+                        # for each snapshot select a clone
+                        vol_dependencies = []
+                        for vol_snap in zfsutils.zvol_get_snaphots(dbg, vol_name):
+                            snap_dependencies = tuple(zfsutils.zsnap_get_dependencies(dbg, vol_snap))
+                            if snap_dependencies:
+                                vol_dependencies.append(snap_dependencies[0])
+                            else:
+                                raise Exception(
+                                    "zfs volume %s destruction blocked by uncloned snapshot %s" %
+                                    (vol_name, vol_snap))
+                        if vol_dependencies:
+                            for dep in vol_dependencies:
+                                zfsutils.vol_promote(dbg, dep)
+                            zfsutils.zpool_log_state(dbg, "after promotions", pool_name)
+                        zfsutils.vol_destroy(dbg, vol_name)
+
                     db.delete_vdi(key)
 
                     cb.volumeDestroy(opq, str(vdi.volume.id))
