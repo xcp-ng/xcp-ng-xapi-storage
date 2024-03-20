@@ -1,7 +1,38 @@
 import os
+import subprocess
 
-from xapi.storage.common import call
+import xapi
 from xapi.storage import log
+
+###
+
+# FIXME: this should use zfs API to get a real error code to identify
+# when to retry
+def call(dbg, cmd_args, error=True, simple=True, expRc=0,
+         ntries=1, retry_delay_sec=0.1):
+    "Fork of xapi.storage call() with retry on busy."
+    while ntries:
+        log.debug('%s: Running cmd %s', dbg, cmd_args)
+        proc = subprocess.Popen(
+            cmd_args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            close_fds=True)
+        stdout, stderr = proc.communicate()
+        if error and proc.returncode != expRc:
+            log.error('%s: %s exitted with code %s: %s',
+                      dbg, " ".join(cmd_args), proc.returncode, stderr)
+            if ntries > 1 and "is busy" in stderr:
+                ntries -= 1
+                log.debug("%s: busy detected, retrying %s times", dbg, ntries)
+                continue
+            raise xapi.InternalError('{} exitted with non-zero code {}: {}'.format(
+                " ".join(cmd_args), proc.returncode, stderr))
+        if simple:
+            return stdout
+        return stdout, stderr, proc.returncode
+
+###
 
 MOUNT_ROOT = '/var/run/sr-mount'
 
