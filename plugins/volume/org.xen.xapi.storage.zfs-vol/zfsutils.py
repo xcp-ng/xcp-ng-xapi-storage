@@ -1,8 +1,13 @@
 import os
 
 from xapi.storage.common import call
+from xapi.storage import log
 
 MOUNT_ROOT = '/var/run/sr-mount'
+
+def zpool_log_state(dbg, label, pool_name):
+    cmd = "zfs list -t all -Hp -o name,origin".split()
+    log.debug("%s: %s: %s", dbg, label, call(dbg, cmd))
 
 def zvol_path(pool_name, vol_id):
     return "{}/{}".format(pool_name, vol_id)
@@ -21,6 +26,17 @@ def zvol_find_snap_path(dbg, pool_name, snap_id):
         if this_snap_id == snap_id:
             return this_snap_name
     return None
+
+def zvol_get_snaphots(dbg, vol_name):
+    cmd = "zfs list -Hp -t snapshot -o name".split() + [vol_name]
+    return call(dbg, cmd).strip().splitlines()
+
+def zsnap_get_dependencies(dbg, snap_name):
+    cmd = "zfs list -Hp -o name,origin".split()
+    for entry in call(dbg, cmd).strip().splitlines():
+        zvol, origin = entry.split("\t")
+        if origin == snap_name:
+            yield zvol
 
 ###
 
@@ -78,6 +94,10 @@ def vol_create(dbg, zvol_path, size_mib):
 
 def vol_destroy(dbg, zvol_path):
     cmd = "zfs destroy".split() + [zvol_path]
+    call(dbg, cmd)
+
+def vol_promote(dbg, zvol_path):
+    cmd = "zfs promote".split() + [zvol_path]
     call(dbg, cmd)
 
 def vol_resize(dbg, vol_path, new_size):
