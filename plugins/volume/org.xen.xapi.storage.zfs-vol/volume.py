@@ -93,9 +93,12 @@ class Implementation(DefaultImplementation):
                             if snap_dependencies:
                                 vol_dependencies.append(snap_dependencies[0])
                             else:
-                                raise Exception(
-                                    "zfs volume %s destruction blocked by uncloned snapshot %s" %
-                                    (vol_name, vol_snap))
+                                # no clone: create one!
+                                clone_volume = db.insert_child_volume(vdi.volume.id, vdi.volume.vsize)
+                                clone_path = zfsutils.zvol_path(pool_name, clone_volume.id)
+                                zfsutils.vol_clone(dbg, vol_snap, clone_path)
+                                vol_dependencies.append(clone_path)
+
                         if vol_dependencies:
                             for dep in vol_dependencies:
                                 zfsutils.vol_promote(dbg, dep)
