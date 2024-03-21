@@ -85,6 +85,16 @@ def pool_create(dbg, pool_name, vdev_defn):
            + vdev_defn)
     call(dbg, cmd)
 
+def pool_import(dbg, pool_name):
+    cmd = ("zpool import".split()
+           + ['-R', MOUNT_ROOT]    # -R ensure that <pool_name> is mounted
+           + [pool_name])
+    call(dbg, cmd)
+
+def pool_export(dbg, pool_name):
+    cmd = "zpool export".split() + [ pool_name ]
+    call(dbg, cmd)
+
 def pool_destroy(dbg, pool_name):
     cmd = "zpool destroy".split() + [pool_name]
     call_retry(dbg, cmd)

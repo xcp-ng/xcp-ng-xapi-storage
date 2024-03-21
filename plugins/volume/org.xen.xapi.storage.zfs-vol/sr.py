@@ -99,18 +99,23 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
     def attach(self, dbg, configuration):
         log.debug('{}: SR.attach: config={}'.format(dbg, configuration))
 
-        # ZFS automagically attaches a pool to a mountpoint on
-        # create/boot/etc, so we basically do nothing here but find
-        # this mountpoint
+        pool_name = configuration["zpool"]
+        try:
+            mountpoint = zfsutils.pool_mountpoint(dbg, pool_name)
+        except Exception:
+            log.debug('{}: SR.attach: mountpoint for {} not found, import it'.format(dbg, pool_name))
+        else:
+            # SR.attach should be idempotent. So if the mountpoint is already
+            # mounted just return it.
+            return mountpoint
 
-        # FIXME: study how pools are mounted on boot and see if we
-        # could do real a/detach
-
+        zfsutils.pool_import(dbg, pool_name)
         return zfsutils.pool_mountpoint(dbg, configuration["zpool"])
 
     def detach(self, dbg, sr):
-        # Nothing to unmount for now.
-        pass
+        meta = util.get_sr_metadata(dbg, 'file://' + sr)
+        # When the pool is exported it is also unmounted.
+        zfsutils.pool_export(dbg, meta["zpool"])
 
     def ls(self, dbg, sr):
         results = []
