@@ -13,3 +13,9 @@ def pool_create(dbg, pool_name, devs):
            + ['-R', MOUNT_ROOT]
            + devs)
     call(dbg, cmd)
+
+def pool_import(dbg, pool_name):
+    cmd = ("zpool import".split()
+           + ['-R', MOUNT_ROOT]    # -R ensure that <pool_name> is mounted
+           + [pool_name])
+    call(dbg, cmd)

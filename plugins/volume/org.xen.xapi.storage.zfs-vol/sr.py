@@ -65,6 +65,22 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         log.debug('{}: SR.create: sr={}'.format(dbg, mountpoint))
         return configuration
 
+    def attach(self, dbg, configuration):
+        log.debug('{}: SR.attach: config={}'.format(dbg, configuration))
+
+        pool_name = configuration["zpool"]
+        try:
+            mountpoint = zfsutils.pool_mountpoint(dbg, pool_name)
+        except Exception:
+            log.debug('{}: SR.attach: mountpoint for {} not found, import it'.format(dbg, pool_name))
+        else:
+            # SR.attach should be idempotent. So if the mountpoint is already
+            # mounted just return it.
+            return mountpoint
+
+        zfsutils.pool_import(dbg, pool_name)
+        return zfsutils.pool_mountpoint(dbg, configuration["zpool"])
+
 
 if __name__ == '__main__':
     log.log_call_argv()
@@ -75,5 +91,7 @@ if __name__ == '__main__':
     base = os.path.basename(sys.argv[0])
     if base == 'SR.create':
         cmd.create()
+    elif base == 'SR.attach':
+        cmd.attach()
     else:
         raise xapi.storage.api.v5.volume.Unimplemented(base)
