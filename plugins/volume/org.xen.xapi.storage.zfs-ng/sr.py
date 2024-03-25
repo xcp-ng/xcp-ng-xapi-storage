@@ -67,6 +67,18 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         log.debug('{}: SR.create: sr={}'.format(dbg, mountpoint))
         return configuration
 
+    def attach(self, dbg, configuration):
+        log.debug('{}: SR.attach: config={}'.format(dbg, configuration))
+
+        # ZFS automagically attaches a pool to a mountpoint on
+        # create/boot/etc, so we basically do nothing here but find
+        # this mountpoint
+
+        # FIXME: study how pools are mounted on boot and see if we
+        # could do real a/detach
+
+        return zfsutils.pool_mountpoint(dbg, configuration["zpool"])
+
 
 if __name__ == '__main__':
     log.log_call_argv()
@@ -74,5 +86,7 @@ if __name__ == '__main__':
     base = os.path.basename(sys.argv[0])
     if base == 'SR.create':
         cmd.create()
+    elif base == 'SR.attach':
+        cmd.attach()
     else:
         raise xapi.storage.api.v5.volume.Unimplemented(base)
