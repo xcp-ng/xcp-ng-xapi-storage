@@ -13,3 +13,13 @@ def pool_create(dbg, pool_name, devs):
            + ['-R', MOUNT_ROOT]
            + devs)
     call(dbg, cmd)
+
+def pool_get_size(dbg, sr_path):
+    # size is returned in bytes
+    cmd = "zpool get -Hp -o value size".split() + [ sr_path ]
+    return int(call(dbg, cmd))
+
+def pool_get_free_space(dbg, sr_path):
+    # size is returned in bytes
+    cmd = "zpool get -Hp -o value free".split() + [ sr_path ]
+    return int(call(dbg, cmd))
