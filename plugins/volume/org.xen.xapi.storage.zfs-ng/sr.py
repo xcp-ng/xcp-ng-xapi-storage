@@ -71,6 +71,10 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         log.debug('{}: SR.create: sr={}'.format(dbg, mountpoint))
         return configuration
 
+    def destroy(self, dbg, sr):
+        meta = util.get_sr_metadata(dbg, 'file://' + sr)
+        zfsutils.pool_destroy(dbg, meta["zpool"])
+
     def attach(self, dbg, configuration):
         log.debug('{}: SR.attach: config={}'.format(dbg, configuration))
 
@@ -119,6 +123,8 @@ if __name__ == '__main__':
         cmd.create()
     elif base == 'SR.attach':
         cmd.attach()
+    elif base == 'SR.destroy':
+        cmd.destroy()
     elif base == 'SR.detach':
         cmd.detach()
     elif base == 'SR.stat':
