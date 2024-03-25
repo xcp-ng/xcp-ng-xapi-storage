@@ -85,6 +85,11 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         zfsutils.pool_import(dbg, pool_name)
         return zfsutils.pool_mountpoint(dbg, configuration["zpool"])
 
+    def detach(self, dbg, sr):
+        meta = util.get_sr_metadata(dbg, 'file://' + sr)
+        # When the pool is exported it is also unmounted.
+        zfsutils.pool_export(dbg, meta["zpool"])
+
     def stat(self, dbg, sr):
         if not os.path.isdir(sr):
             raise xapi.storage.api.v5.volume.Sr_not_attached(sr)
@@ -115,6 +120,8 @@ if __name__ == '__main__':
         cmd.create()
     elif base == 'SR.attach':
         cmd.attach()
+    elif base == 'SR.detach':
+        cmd.detach()
     elif base == 'SR.stat':
         cmd.stat()
     else:

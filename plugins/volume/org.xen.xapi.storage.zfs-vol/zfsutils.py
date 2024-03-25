@@ -20,6 +20,10 @@ def pool_import(dbg, pool_name):
            + [pool_name])
     call(dbg, cmd)
 
+def pool_export(dbg, pool_name):
+    cmd = "zpool export".split() + [ pool_name ]
+    call(dbg, cmd)
+
 def pool_get_size(dbg, sr_path):
     # size is returned in bytes
     cmd = "zpool get -Hp -o value size".split() + [ sr_path ]
