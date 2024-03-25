@@ -20,6 +20,7 @@ class Implementation(xapi.storage.api.v5.plugin.Plugin_skeleton):
             "version": "3.0",
             "required_api_version": "5.0",
             "features": [
+                "VDI_CREATE",
             ],
             "configuration": {},
             "required_cluster_stack": []}
