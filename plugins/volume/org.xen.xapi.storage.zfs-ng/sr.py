@@ -58,9 +58,13 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         importlib.import_module('zfs-ng').Callbacks().create_database(mountpoint)
 
         meta = {
+            # mandatory elements we need everywhere
             'name': name,
             'description': description,
             'uuid': sr_uuid,
+            # pool name may not always be derived from mountpoint or
+            # sr_uuid, esp. when creating with "zpool=$PREBUILT_POOL"
+            'zpool': pool_name,
         }
         util.update_sr_metadata(dbg, 'file://' + mountpoint, meta)
 
