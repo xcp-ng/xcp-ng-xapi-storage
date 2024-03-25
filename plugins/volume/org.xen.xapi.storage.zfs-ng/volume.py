@@ -27,7 +27,12 @@ def call_volume_command():
     cmd = xapi.storage.api.v5.volume.Volume_commandline(
         Implementation(fsp.Callbacks()))
     base = os.path.basename(sys.argv[0])
-    raise xapi.storage.api.v5.volume.Unimplemented(base)
+    if base == "Volume.set":
+        cmd.set()
+    elif base == "Volume.unset":
+        cmd.unset()
+    else:
+        raise xapi.storage.api.v5.volume.Unimplemented(base)
 
 if __name__ == "__main__":
     call_volume_command()
