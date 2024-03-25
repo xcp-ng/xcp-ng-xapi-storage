@@ -83,6 +83,10 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
 
         return zfsutils.pool_mountpoint(dbg, configuration["zpool"])
 
+    def detach(self, dbg, sr):
+        # Nothing to unmount for now.
+        pass
+
     def stat(self, dbg, sr):
         # TODO: replace this with a check if it is a device
         #if not os.path.isdir(sr):
@@ -115,6 +119,8 @@ if __name__ == '__main__':
         cmd.create()
     elif base == 'SR.attach':
         cmd.attach()
+    elif base == 'SR.detach':
+        cmd.detach()
     elif base == 'SR.stat':
         cmd.stat()
     else:
