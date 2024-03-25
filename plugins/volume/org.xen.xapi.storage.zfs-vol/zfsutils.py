@@ -43,6 +43,13 @@ def pool_get_free_space(dbg, sr_path):
     cmd = "zpool get -Hp -o value free".split() + [ sr_path ]
     return int(call(dbg, cmd))
 
+###
+
+def vol_get_used(dbg, vol_name):
+    # size is returned in bytes
+    cmd = "zfs get -Hp -o value used".split() + [ vol_name ]
+    return int(call(dbg, cmd))
+
 def vol_create(dbg, zvol_path, size_mib):
     cmd = ("zfs create -s".split() + [zvol_path]
            + ['-V', str(size_mib)]

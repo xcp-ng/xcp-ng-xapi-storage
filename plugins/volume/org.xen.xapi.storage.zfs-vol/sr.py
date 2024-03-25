@@ -9,7 +9,9 @@ import urlparse
 from xapi.storage import log
 from xapi.storage.libs import util
 from xapi.storage.common import call
+from xapi.storage.libs.libcow.imageformat import ImageFormat
 from xapi.storage.libs.libcow.volume import COWVolume
+from xapi.storage.libs.libcow.callbacks import VolumeContext
 import xapi.storage.api.v5.volume
 
 import zfsutils
@@ -94,6 +96,46 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         # When the pool is exported it is also unmounted.
         zfsutils.pool_export(dbg, meta["zpool"])
 
+    def ls(self, dbg, sr):
+        results = []
+        meta = util.get_sr_metadata(dbg, 'file://' + sr)
+        pool_name = meta["zpool"]
+        cb = importlib.import_module('zfs-vol').Callbacks()
+        with VolumeContext(cb, sr, 'r') as opq:
+            with cb.db_context(opq) as db:
+                vdis = db.get_all_vdis()
+                all_custom_keys = db.get_all_vdi_custom_keys()
+
+            for vdi in vdis:
+                # TODO: handle this better
+                # _vdi_sanitize(vdi, opq, db, cb)
+
+                image_format = ImageFormat.get_format(vdi.image_type)
+                is_snapshot = bool(vdi.volume.snap)
+                assert not is_snapshot, "snapshots not implemented yet"
+                vol_name = zfsutils.zvol_path(pool_name, vdi.volume.id)
+                psize = zfsutils.vol_get_used(dbg, vol_name)
+
+                vdi_uri = cb.getVolumeUriPrefix(opq) + vdi.uuid
+                custom_keys = {}
+                if vdi.uuid in all_custom_keys:
+                    custom_keys = all_custom_keys[vdi.uuid]
+
+                results.append({
+                    'uuid': vdi.uuid,
+                    'key': vdi.uuid,
+                    'name': vdi.name,
+                    'description': vdi.description,
+                    'read_write': not is_snapshot,
+                    'virtual_size': vdi.volume.vsize,
+                    'physical_utilisation': psize,
+                    'uri': [image_format.uri_prefix + vdi_uri],
+                    'keys': custom_keys,
+                    'sharable': bool(vdi.sharable)
+                })
+
+        return results
+
     def stat(self, dbg, sr):
         if not os.path.isdir(sr):
             raise xapi.storage.api.v5.volume.Sr_not_attached(sr)
@@ -135,6 +177,8 @@ if __name__ == '__main__':
         cmd.destroy()
     elif base == 'SR.detach':
         cmd.detach()
+    elif base == 'SR.ls':
+        cmd.ls()
     elif base == 'SR.stat':
         cmd.stat()
     elif base == 'SR.set_name':
