@@ -112,6 +112,13 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
             'health': ['Healthy', ''] # could be "Recovering", when does it make sense?
         }
 
+    def set_name(self, dbg, sr, new_name):
+        util.update_sr_metadata(dbg, 'file://' + sr, {'name': new_name})
+
+    def set_description(self, dbg, sr, new_description):
+        util.update_sr_metadata(
+            dbg, 'file://' + sr, {'description': new_description})
+
 
 if __name__ == '__main__':
     log.log_call_argv()
@@ -130,5 +137,9 @@ if __name__ == '__main__':
         cmd.detach()
     elif base == 'SR.stat':
         cmd.stat()
+    elif base == 'SR.set_name':
+        cmd.set_name()
+    elif base == 'SR.set_description':
+        cmd.set_description()
     else:
         raise xapi.storage.api.v5.volume.Unimplemented(base)
