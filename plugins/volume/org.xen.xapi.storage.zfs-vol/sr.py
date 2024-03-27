@@ -25,23 +25,28 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         log.debug('{}: SR.create: config={}, sr_uuid={}'.format(
             dbg, configuration, sr_uuid))
 
-        # 2 ways to create a SR:
+        # 3 ways to create a SR:
         # - from an existing zpool (manually created for complex configs)
         # - from a "device" config string (comma-separated list of devices)
+        # - from a "vdev" config string (vdev specification suitable for `zfs create`)
 
         if 'zpool' in configuration:
-            if 'device' in configuration:
-                log.error('"zpool" specified, "device" should not be used')
-                raise Exception('"zpool" specified, "device" should not be used')
+            if 'device' in configuration or 'vdev' in configuration:
+                log.error('"zpool" specified, "device" or "vdev" should not be used')
+                raise Exception('"zpool" specified, "device" or "vdev" should not be used')
 
             # FIXME validate existence of pool first?
             pool_name = configuration['zpool']
 
         elif 'device' in configuration:
-            devs = configuration['device'].split(',')
+            if 'vdev' in configuration:
+                log.error('"device" specified, "vdev" should not be used')
+                raise Exception('"device" specified, "vdev" should not be used')
+
+            vdev_defn = configuration['device'].split(',')
 
             pool_name = "sr-{}".format(sr_uuid)
-            zfsutils.pool_create(dbg, pool_name, devs)
+            zfsutils.pool_create(dbg, pool_name, vdev_defn)
 
             # "device" is only used once to create the zpool, which
             # then becomes the sole way to designate the SR
@@ -49,9 +54,25 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
             del configuration['device']
             configuration["zpool"] = pool_name
 
+        elif 'vdev' in configuration:
+            vdev_defn = configuration['vdev'].split(' ')
+            # check no word attempts to play tricks us passing arbitrary options
+            for word in vdev_defn:
+                if not (word[0].isalpha() or word[0] == "/"):
+                    raise Exception('"vdev" contain invalid-looking string %r' % (word,))
+
+            pool_name = "sr-{}".format(sr_uuid)
+            zfsutils.pool_create(dbg, pool_name, vdev_defn)
+
+            # "vdev" is only used once to create the zpool, which
+            # then becomes the sole way to designate the SR
+            configuration["orig-vdev"] = configuration['vdev']
+            del configuration['vdev']
+            configuration["zpool"] = pool_name
+
         else:
-            log.error('devices config must have "zpool" or "device"')
-            raise Exception('devices config must have "zpool" or "device"')
+            log.error('devices config must have "zpool", "vdev", or "device"')
+            raise Exception('devices config must have "zpool", "vdev", or "device"')
 
         # FIXME this assumes zpool is mounted/attached
         mountpoint = zfsutils.pool_mountpoint(dbg, pool_name)
