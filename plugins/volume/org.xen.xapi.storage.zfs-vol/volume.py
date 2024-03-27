@@ -239,7 +239,7 @@ class Implementation(DefaultImplementation):
 def call_volume_command():
     """Parse the arguments and call the required command"""
     log.log_call_argv()
-    fsp = importlib.import_module("zfs-ng")
+    fsp = importlib.import_module("zfs-vol")
     cmd = xapi.storage.api.v5.volume.Volume_commandline(
         Implementation(fsp.Callbacks()))
     base = os.path.basename(sys.argv[0])
