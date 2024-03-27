@@ -27,33 +27,33 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
 
         # 2 ways to create a SR:
         # - from an existing zpool (manually created for complex configs)
-        # - from a "devices" config string (comma-separated list of devices)
+        # - from a "device" config string (comma-separated list of devices)
 
         if 'zpool' in configuration:
-            if 'devices' in configuration:
-                log.error('"zpool" specified, "devices" should not be used')
-                raise Exception('"zpool" specified, "devices" should not be used')
+            if 'device' in configuration:
+                log.error('"zpool" specified, "device" should not be used')
+                raise Exception('"zpool" specified, "device" should not be used')
 
             # FIXME do we reject pools not under MOUNT_ROOT?
 
             # FIXME validate existence of pool first?
             pool_name = configuration['zpool']
 
-        elif 'devices' in configuration:
-            devs = configuration['devices'].split(',')
+        elif 'device' in configuration:
+            devs = configuration['device'].split(',')
 
             pool_name = "sr-{}".format(sr_uuid)
             zfsutils.pool_create(dbg, pool_name, devs)
 
-            # "devices" is only used once to create the zpool, which
+            # "device" is only used once to create the zpool, which
             # then becomes the sole way to designate the SR
-            configuration["orig-devices"] = configuration['devices']
-            del configuration['devices']
+            configuration["orig-device"] = configuration['device']
+            del configuration['device']
             configuration["zpool"] = pool_name
 
         else:
-            log.error('devices config must have "zpool" or "devices"')
-            raise Exception('devices config must have "zpool" or "devices"')
+            log.error('devices config must have "zpool" or "device"')
+            raise Exception('devices config must have "zpool" or "device"')
 
         # FIXME this assumes zpool is mounted/attached
         mountpoint = zfsutils.pool_mountpoint(dbg, pool_name)
