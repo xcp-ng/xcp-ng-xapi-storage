@@ -57,7 +57,7 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
 
         # FIXME this assumes zpool is mounted/attached
         mountpoint = zfsutils.pool_mountpoint(dbg, pool_name)
-        importlib.import_module('zfs-ng').Callbacks().create_database(mountpoint)
+        importlib.import_module('zfs-vol').Callbacks().create_database(mountpoint)
 
         meta = {
             # mandatory elements we need everywhere
