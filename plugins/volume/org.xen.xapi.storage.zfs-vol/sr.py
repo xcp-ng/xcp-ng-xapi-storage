@@ -97,7 +97,7 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         results = []
         meta = util.get_sr_metadata(dbg, 'file://' + sr)
         pool_name = meta["zpool"]
-        cb = importlib.import_module('zfs-ng').Callbacks()
+        cb = importlib.import_module('zfs-vol').Callbacks()
         with VolumeContext(cb, sr, 'r') as opq:
             with cb.db_context(opq) as db:
                 vdis = db.get_all_vdis()
