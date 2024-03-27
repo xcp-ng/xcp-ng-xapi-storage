@@ -12,7 +12,7 @@ class Implementation(xapi.storage.api.v5.plugin.Plugin_skeleton):
 
     def query(self, dbg):
         return {
-            "plugin": "zfs-ng",
+            "plugin": "zfs-vol",
             "name": "ZFS Volume plugin",
             "description": ("This plugin manages ZFS volumes"),
             "vendor": "None",
