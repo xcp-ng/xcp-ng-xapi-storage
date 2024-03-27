@@ -31,16 +31,16 @@ find_package(Python2 COMPONENTS Interpreter REQUIRED)
 # ------------------------------------------------------------------------------
 
 set(DATAPATH_PLUGINS
-  qdisk
+#  qdisk
   tapdisk
 )
 
 set(VOLUME_PLUGINS
   org.xen.xapi.storage.zfs-vol
-  org.xen.xapi.storage.ext4-ng
-  org.xen.xapi.storage.filebased
-  org.xen.xapi.storage.nfs-ng
-  org.xen.xapi.storage.raw-device
+#  org.xen.xapi.storage.ext4-ng
+#  org.xen.xapi.storage.filebased
+#  org.xen.xapi.storage.nfs-ng
+#  org.xen.xapi.storage.raw-device
 )
 
 set(LIBS_TASKS
@@ -87,14 +87,14 @@ install(DIRECTORY "${STORAGE_LIBS}/usr/"
   PATTERN REGEX ${LIBS_TASKS_REGEX}
 )
 
-# Install daemons.
-install(FILES daemons/qemuback/qemuback.py
-  DESTINATION ${CMAKE_INSTALL_BINDIR}
-  PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
-)
-install(FILES daemons/qemuback/qemuback.service
-  DESTINATION ${CMAKE_INSTALL_LIBDIR}/systemd/system
-)
+## Install daemons.
+#install(FILES daemons/qemuback/qemuback.py
+#  DESTINATION ${CMAKE_INSTALL_BINDIR}
+#  PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
+#)
+#install(FILES daemons/qemuback/qemuback.service
+#  DESTINATION ${CMAKE_INSTALL_LIBDIR}/systemd/system
+#)
 
 # Install plugins.
 set(PLUGINS_INSTALL_PATH "${CMAKE_INSTALL_FULL_LIBEXECDIR}/xapi-storage-script")
