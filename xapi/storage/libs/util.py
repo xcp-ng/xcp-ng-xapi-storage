@@ -24,7 +24,7 @@ class CommandException(Exception):
         self.code = code
         self.cmd = cmd
         self.reason = reason
-        Exception.__init__(self, os.strerror(abs(code)))
+        Exception.__init__(self, reason)
 
 
 def mkdir_p(path, mode=0o777):

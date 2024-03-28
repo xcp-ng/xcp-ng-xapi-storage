@@ -1,10 +1,11 @@
 """
 Metadata database for virtual disks
 """
+
+import logging
+import sqlite3
 from xapi.storage import log
 from xapi.storage.libs import util
-import sqlite3
-
 
 class VDI(object):
     """
@@ -348,6 +349,7 @@ class VolumeMetabase(object):
         """
         Insert a new VDI into the database
         """
+        logging.debug("insert_vdi(uuid=%s, volid=%s)", uuid, volume_id)
         self._conn.execute("""
             INSERT INTO vdi(
                 uuid, name, description, volume_id, sharable)
