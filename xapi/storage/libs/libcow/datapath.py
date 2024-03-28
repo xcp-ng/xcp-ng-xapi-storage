@@ -53,11 +53,10 @@ class COWDatapath(object):
             with Lock(opq, 'gl', cb):
                 with cb.db_context(opq) as db:
                     vdi = db.get_vdi_by_id(key)
-                    # Raise Storage Error VDIInUse - 24
+                    # activate should be idempotent. So just return if the VDI is
+                    # already active.
                     if vdi.active_on:
-                        raise util.create_storage_error(
-                            "SR_BACKEND_FAILURE_24",
-                            ["VDIInUse", "The VDI is currently in use"])
+                        return
                     vol_path = cb.volumeGetPath(opq, str(vdi.volume.id))
                     img = cls._get_image_from_vdi(vdi, vol_path)
                     if not vdi.sharable:
