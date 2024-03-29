@@ -35,8 +35,6 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
                 log.error('"zpool" specified, "device" or "vdev" should not be used')
                 raise Exception('"zpool" specified, "device" or "vdev" should not be used')
 
-            # FIXME do we reject pools not under MOUNT_ROOT?
-
             # FIXME validate existence of pool first?
             pool_name = configuration['zpool']
 
