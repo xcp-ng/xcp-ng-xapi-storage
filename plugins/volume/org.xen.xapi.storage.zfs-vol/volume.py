@@ -180,6 +180,7 @@ class Implementation(DefaultImplementation):
             with PollLock(opq, 'gl', cb, 0.5):
                 with cb.db_context(opq) as db:
                     vdi = db.get_vdi_by_id(key)
+                    _vdi_sanitize(vdi, db)
                     image_format = ImageFormat.get_format(vdi.image_type)
 
                     vol_id = (vdi.volume.id if vdi.volume.snap == 0 else
