@@ -106,7 +106,7 @@ def vol_get_used(dbg, vol_name):
     return int(call(dbg, cmd))
 
 def vol_create(dbg, zvol_path, size_mib):
-    cmd = ("zfs create".split() + [zvol_path]
+    cmd = ("zfs create -s".split() + [zvol_path]
            + ['-V', str(size_mib)]
            )
     call_retry(dbg, cmd)
