@@ -7,7 +7,6 @@ import urlparse
 import uuid
 import xapi.storage.api.v5.volume
 
-from xapi.storage.common import call
 from xapi.storage import log
 from xapi.storage.libs import util
 from xapi.storage.libs.libcow.callbacks import VolumeContext
@@ -20,7 +19,7 @@ import zfsutils
 
 @util.decorate_all_routines(util.log_exceptions_in_function)
 class Implementation(DefaultImplementation):
-    "Volume driver to provide volumes from zvol's"
+    "Volume driver to provide raw volumes from zvol's"
 
     def create(self, dbg, sr, name, description, size, sharable):
         meta = util.get_sr_metadata(dbg, 'file://' + sr)

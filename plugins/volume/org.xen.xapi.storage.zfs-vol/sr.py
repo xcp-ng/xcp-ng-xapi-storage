@@ -193,6 +193,9 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
 if __name__ == '__main__':
     log.log_call_argv()
     cmd = xapi.storage.api.v5.volume.SR_commandline(Implementation())
+
+    call("zfs-vol.sr", ['modprobe', 'zfs'])
+
     base = os.path.basename(sys.argv[0])
     if base == 'SR.create':
         cmd.create()
