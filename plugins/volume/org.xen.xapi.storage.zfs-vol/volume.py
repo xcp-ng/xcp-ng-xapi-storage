@@ -125,14 +125,11 @@ class Implementation(DefaultImplementation):
         meta = util.get_sr_metadata(dbg, 'file://' + sr)
         pool_name = meta["zpool"]
 
-        image_format = None
         cb = self.callbacks
         with VolumeContext(cb, sr, 'r') as opq:
             with cb.db_context(opq) as db:
                 vdi = db.get_vdi_by_id(key)
                 image_format = ImageFormat.get_format(vdi.image_type)
-                # TODO: handle this better
-                # _vdi_sanitize(vdi, opq, db, cb)
                 is_snapshot = vdi.volume.snap
                 if is_snapshot:
                     vol_name = zfsutils.zvol_find_snap_path(dbg, pool_name, vdi.volume.id)
