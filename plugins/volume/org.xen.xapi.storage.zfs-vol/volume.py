@@ -221,6 +221,7 @@ class Implementation(DefaultImplementation):
             with PollLock(opq, 'gl', cb, 0.5):
                 with cb.db_context(opq) as db:
                     vdi = db.get_vdi_by_id(key)
+                    _vdi_sanitize(vdi, db)
                     if not vdi.volume.snap:
                         raise Exception('Only snapshots can be cloned!')
                     snap_name = zfsutils.zvol_find_snap_path(dbg, pool_name, vdi.volume.id)
