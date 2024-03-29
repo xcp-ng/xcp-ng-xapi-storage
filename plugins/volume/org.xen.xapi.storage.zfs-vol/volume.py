@@ -70,6 +70,7 @@ class Implementation(DefaultImplementation):
             with PollLock(opq, 'gl', cb, 0.5):
                 with cb.db_context(opq) as db:
                     vdi = db.get_vdi_by_id(key)
+                    _vdi_sanitize(vdi, db)
                     is_snapshot = vdi.volume.snap
                     if is_snapshot:
                         snap_name = zfsutils.zvol_find_snap_path(dbg, pool_name, vdi.volume.id)
@@ -117,9 +118,22 @@ class Implementation(DefaultImplementation):
         with VolumeContext(cb, sr, 'r') as opq:
             with cb.db_context(opq) as db:
                 vdi = db.get_vdi_by_id(key)
+                _vdi_sanitize(vdi, db)
+                if new_size < vdi.volume.vsize:
+                    log.error("Volume cannot be shrunk from {} to {}".
+                              format(vdi.volume.vsize, new_size))
+                    raise util.create_storage_error("SR_BACKEND_FAILURE_79",
+                                                    ["VDI Invalid size",
+                                                     "shrinking not allowed"])
+                db.update_volume_vsize(vdi.volume.id, None)
+            with cb.db_context(opq) as db:
                 vol_name = zfsutils.zvol_path(pool_name, vdi.volume.id)
-                db.update_volume_vsize(vdi.volume.id, new_size)
                 zfsutils.vol_resize(dbg, vol_name, new_size)
+                vdi.volume.vsize = zfsutils.vol_get_size(dbg, vol_name)
+                if vdi.volume.vsize != new_size:
+                    log.debug("%s: VDI.resize adjusted requested size %s to %s",
+                              dbg, size, vdi.volume.vsize)
+                db.update_volume_vsize(vdi.volume.id, vdi.volume.vsize)
 
     def stat(self, dbg, sr, key):
         meta = util.get_sr_metadata(dbg, 'file://' + sr)
@@ -129,6 +143,7 @@ class Implementation(DefaultImplementation):
         with VolumeContext(cb, sr, 'r') as opq:
             with cb.db_context(opq) as db:
                 vdi = db.get_vdi_by_id(key)
+                _vdi_sanitize(vdi, db)
                 image_format = ImageFormat.get_format(vdi.image_type)
                 is_snapshot = vdi.volume.snap
                 if is_snapshot:
@@ -267,6 +282,18 @@ def call_volume_command():
         cmd.set_description()
     else:
         raise xapi.storage.api.v5.volume.Unimplemented(base)
+
+def _vdi_sanitize(vdi, db):
+    """Sanitize vdi metadata object
+
+    When retrieving vdi metadata from the database, it is possible
+    that 'vsize' is 'None', if we crashed during a resize operation.
+    In this case, query the underlying volume and update 'vsize', both
+    in the object and the database
+    """
+    if vdi.volume.vsize is None:
+        vdi.volume.vsize = zfsutils.vol_get_size(dbg, vol_name)
+        db.update_volume_vsize(vdi.volume.id, vdi.volume.vsize)
 
 if __name__ == "__main__":
     call_volume_command()
