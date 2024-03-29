@@ -22,7 +22,8 @@ def call(dbg, cmd_args, error=True, simple=True, expRc=0,
         if error and proc.returncode != expRc:
             log.error('%s: %s exitted with code %s: %s',
                       dbg, " ".join(cmd_args), proc.returncode, stderr)
-            if ntries > 1 and "is busy" in stderr:
+            # returncode==2 is an invocation error, no retry needed
+            if ntries > 1 and "is busy" in stderr and proc.returncode != 2:
                 ntries -= 1
                 log.debug("%s: busy detected, retrying %s times", dbg, ntries)
                 continue
