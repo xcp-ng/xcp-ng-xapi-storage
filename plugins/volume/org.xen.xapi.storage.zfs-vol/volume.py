@@ -26,7 +26,6 @@ class Implementation(DefaultImplementation):
         pool_name = meta["zpool"]
 
         with VolumeContext(self.callbacks, sr, 'w') as opq:
-            # FIXME how should we choose image format?
             image_type = ImageFormat.IMAGE_RAW
             image_format = ImageFormat.get_format(image_type)
             vdi_uuid = str(uuid.uuid4())
@@ -38,6 +37,13 @@ class Implementation(DefaultImplementation):
                         name, description, vdi_uuid, volume.id, sharable)
                     path = zfsutils.zvol_path(pool_name, volume.id)
                     zfsutils.vol_create(dbg, path, size)
+
+                    vol_name = zfsutils.zvol_path(pool_name, volume.id)
+                    volume.vsize = zfsutils.vol_get_size(dbg, vol_name)
+                    if volume.vsize != size:
+                        log.debug("%s: VDI.create adjusted requested size %s to %s",
+                                  dbg, size, volume.vsize)
+                    db.update_volume_vsize(volume.id, volume.vsize)
 
             vdi_uri = self.callbacks.getVolumeUriPrefix(opq) + vdi_uuid
 
