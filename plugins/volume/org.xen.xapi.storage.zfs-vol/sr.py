@@ -158,15 +158,13 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         return results
 
     def stat(self, dbg, sr):
-        # TODO: replace this with a check if it is a device
-        #if not os.path.isdir(sr):
-        #    raise xapi.storage.api.v5.volume.Sr_not_attached(sr)
+        if not os.path.isdir(sr):
+            raise xapi.storage.api.v5.volume.Sr_not_attached(sr)
         meta = util.get_sr_metadata(dbg, 'file://' + sr)
         pool_name = meta["zpool"]
 
-        # FIXME a single zpool-get call would be faster
         psize = zfsutils.pool_get_size(dbg, pool_name)
-        fsize = zfsutils.pool_get_free_space(dbg, pool_name) # FIXME is that the expected datapoint?
+        fsize = zfsutils.pool_get_free_space(dbg, pool_name)
 
         return {
             'sr': sr,
