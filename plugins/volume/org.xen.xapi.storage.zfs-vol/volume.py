@@ -132,7 +132,7 @@ class Implementation(DefaultImplementation):
                 vdi.volume.vsize = zfsutils.vol_get_size(dbg, vol_name)
                 if vdi.volume.vsize != new_size:
                     log.debug("%s: VDI.resize adjusted requested size %s to %s",
-                              dbg, size, vdi.volume.vsize)
+                              dbg, new_size, vdi.volume.vsize)
                 db.update_volume_vsize(vdi.volume.id, vdi.volume.vsize)
 
     def stat(self, dbg, sr, key):
