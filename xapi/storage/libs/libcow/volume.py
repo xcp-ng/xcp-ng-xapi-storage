@@ -54,8 +54,7 @@ class COWVolume(object):
         image_format = None
 
         with VolumeContext(cb, sr, 'w') as opq:
-            image_type = (ImageFormat.IMAGE_RAW if sharable
-                          else ImageFormat.IMAGE_QCOW2)
+            image_type = ImageFormat.IMAGE_RAW # Support for QCOW2 is disabled until fixed
             image_format = ImageFormat.get_format(image_type)
             vdi_uuid = str(uuid.uuid4())
 

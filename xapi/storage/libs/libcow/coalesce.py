@@ -115,8 +115,10 @@ def _find_best_leaf_coalesceable(this_host, uri, callbacks):
                 nodes = __find_leaf_coalesceable(this_host, db)
             for node in nodes:
                 # Temp: no leaf on qcow2 for now
-                if node.image_type == ImageFormat.IMAGE_QCOW2:
-                    continue
+                # Support of QCOW2 has been disabled, comment the code until we
+                # reenable it...
+                #if node.image_type == ImageFormat.IMAGE_QCOW2:
+                #    continue
                 with callbacks.db_context(opq) as db:
                     leaf, parent = __lock_node_pair(node, opq, db, callbacks)
                 if (leaf, parent) != (None, None):
