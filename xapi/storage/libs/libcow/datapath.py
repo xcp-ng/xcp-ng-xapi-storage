@@ -41,9 +41,9 @@ class COWDatapath(object):
 
     @staticmethod
     def _get_image_from_vdi(vdi, vol_path):
-        if vdi.sharable or util.is_block_device(vol_path):
+        #if vdi.sharable or util.is_block_device(vol_path):
             return image.Raw(vol_path)
-        return image.Cow(vol_path)
+        #return image.Cow(vol_path)
 
     @classmethod
     def activate(cls, dbg, uri, domain, cb):
