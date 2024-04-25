@@ -73,8 +73,7 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
 
         sr_uuid = configuration['sr_uuid']
         mnt_path = self._mount_path(sr_uuid)
-        sr_dir = os.path.join(mnt_path, sr_uuid)
-        sr = urlparse.urlunsplit(('file', '', sr_dir, None, None))
+        sr = urlparse.urlunsplit(('file', '', mnt_path, None, None))
 
         if os.path.exists(mnt_path) and os.path.ismount(mnt_path):
             log.debug("%s: SR.attach: uri=%s ALREADY ATTACHED" % (dbg, uri))
@@ -83,9 +82,6 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         log.debug("%s: SR.attach: uri=%s NOT ATTACHED YET" % (dbg, uri))
         # Mount the file system
         mnt_path = self._mount(dbg, nfs_server, sr_uuid)
-
-        if not os.path.exists(sr_dir) or not os.path.isdir(sr_dir):
-            raise ValueError('SR directory doesn\'t exist')
 
         # Start GC for this host
         COWCoalesce.start_gc(dbg, 'nfs-ng', sr)
@@ -104,20 +100,7 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         nfs_server = '{0}:{1}'.format(nfs_uri.netloc, nfs_uri.path)
 
         # Temporarily mount the filesystem so we can write the SR metadata
-        mnt_path = self._mount(dbg, nfs_server, sr_uuid)
-
-        sr = os.path.join(mnt_path, str(sr_uuid))
-
-        # Create SR folder based on name
-        try:
-            os.makedirs(sr)
-        except OSError as exc:
-            if exc.errno == errno.EEXIST:
-                # Need a specifc error here, SR_already_exists.
-                # raise ValueError('SR already exists'):
-                raise
-            else:
-                raise
+        sr = self._mount(dbg, nfs_server, sr_uuid)
 
         # Create the metadata database
         importlib.import_module('nfs-ng').Callbacks().create_database(sr)
@@ -138,7 +121,7 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         }
         util.update_sr_metadata(dbg, 'file://' + sr, meta)
 
-        self._unmount(dbg, mnt_path)
+        self._unmount(dbg, sr)
 
         configuration['sr_uuid'] = sr_uuid
         return configuration
@@ -156,9 +139,8 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
 
         # Unmount the FS
         sr_path = urlparse.urlparse(sr).path
-        mnt_path = os.path.dirname(sr_path)
-        self._unmount(dbg, mnt_path)
-        os.rmdir(mnt_path)
+        self._unmount(dbg, sr_path)
+        os.rmdir(sr_path)
 
     def ls(self, dbg, sr):
         return COWVolume.ls(
@@ -172,6 +154,7 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         util.update_sr_metadata(dbg, 'file://' + sr, {'name': new_name})
 
     def stat(self, dbg, sr):
+        sr = urlparse.urlparse(sr).path # drop file:// prefix
         if not os.path.isdir(sr) or not os.path.ismount(sr):
             raise xapi.storage.api.v5.volume.Sr_not_attached(sr)
 
