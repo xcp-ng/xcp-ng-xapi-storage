@@ -11,6 +11,7 @@ import urlparse
 from xapi.storage import log
 from xapi.storage.libs import util
 from xapi.storage.libs.libcow.metabase import VolumeMetabase
+from xapi.storage.libs.libcow.imageformat import ImageFormat
 
 from .lock import Lock
 
@@ -115,6 +116,9 @@ class Callbacks(object):
 
     def _get_trash_volume_path(self, opq, name):
         return os.path.join(self.get_trash_dir(opq), name)
+
+    def imageFormat(self, sharable):
+        return ImageFormat.IMAGE_RAW if sharable else ImageFormat.IMAGE_QCOW2
 
     def volumeCreate(self, opq, name, size):
         log.debug("volumeCreate opq=%s name=%s size=%d" % (opq, name, size))
