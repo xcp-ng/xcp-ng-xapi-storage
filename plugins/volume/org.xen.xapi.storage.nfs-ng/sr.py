@@ -172,11 +172,13 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         util.update_sr_metadata(dbg, 'file://' + sr, {'name': new_name})
 
     def stat(self, dbg, sr):
-        if not os.path.isdir(sr) or not os.path.ismount(sr):
-            raise xapi.storage.api.v5.volume.Sr_not_attached(sr)
+        sr_path = urlparse.urlparse(sr).path
+        mnt_path = os.path.dirname(sr_path)
+        if not os.path.isdir(mnt_path) or not os.path.ismount(mnt_path):
+            raise xapi.storage.api.v5.volume.Sr_not_attached(mnt_path)
 
         # Get the filesystem size
-        statvfs = os.statvfs(sr)
+        statvfs = os.statvfs(mnt_path)
         psize = statvfs.f_blocks * statvfs.f_frsize
         fsize = statvfs.f_bfree * statvfs.f_frsize
         log.debug('{}: statvfs says psize = {}'.format(dbg, psize))
