@@ -37,7 +37,7 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
                 raise
         if not os.path.ismount(mnt_path):
             cmd = ['/usr/bin/mount', '-t', 'nfs', '-o',
-                   'noatime,nodiratime', nfs_path, mnt_path]
+                   'noatime,nodiratime,vers=4.2', nfs_path, mnt_path]
             call(dbg, cmd)
         return mnt_path
 

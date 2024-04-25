@@ -3,6 +3,7 @@ Map image formats to datapath URIs and tools
 """
 from .qcow2util import QCOW2Util
 from .rawutil import RawUtil
+from .reflinkutil import ReflinkUtil
 from .vhdutil import VHDUtil
 
 
@@ -13,6 +14,7 @@ class ImageFormat(object):
     IMAGE_RAW = 0
     IMAGE_VHD = 1
     IMAGE_QCOW2 = 2
+    IMAGE_REFLINK = 3
 
     _formats = None
 
@@ -36,8 +38,9 @@ class ImageFormat(object):
     def initialize_formats(cls):
         return {
             cls.IMAGE_RAW: ImageFormat('tapdisk://', RawUtil),
+            cls.IMAGE_REFLINK: ImageFormat('tapdisk://', ReflinkUtil),
             cls.IMAGE_VHD: ImageFormat('tapdisk://', VHDUtil),
-            cls.IMAGE_QCOW2: ImageFormat('qdisk://', QCOW2Util)
+            cls.IMAGE_QCOW2: ImageFormat('qdisk://', QCOW2Util),
         }
 
     @classmethod
