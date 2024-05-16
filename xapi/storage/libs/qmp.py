@@ -79,7 +79,7 @@ class QEMUMonitorProtocol:
             resp = json.loads(data)
             if 'event' in resp:
                 if self._debug:
-                    print >>sys.stderr, "QMP:<<< %s" % resp
+                    print("QMP:<<< %s" % resp, file=sys.stderr)
                 self.__events.append(resp)
                 if not only_event:
                     continue
@@ -162,7 +162,7 @@ class QEMUMonitorProtocol:
                 been closed
         """
         if self._debug:
-            print >>sys.stderr, "QMP:>>> %s" % qmp_cmd
+            print("QMP:>>> %s" % qmp_cmd, file=sys.stderr)
         try:
             self.__sock.sendall(json.dumps(qmp_cmd))
         except socket.error as err:
@@ -171,7 +171,7 @@ class QEMUMonitorProtocol:
             raise socket.error(err)
         resp = self.__json_read()
         if self._debug:
-            print >>sys.stderr, "QMP:<<< %s" % resp
+            print("QMP:<<< %s" % resp, file=sys.stderr)
         return resp
 
     def cmd(self, name, args=None, id=None):

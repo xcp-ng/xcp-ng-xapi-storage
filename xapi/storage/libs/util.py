@@ -1,4 +1,3 @@
-from __future__ import absolute_import
 from contextlib import contextmanager
 import errno
 import fcntl
@@ -13,7 +12,7 @@ import string
 import subprocess
 import sys
 import tempfile
-import urlparse
+import urllib.parse
 
 from xapi.storage import log
 from xapi import Rpc_light_failure
@@ -85,6 +84,7 @@ def call_unlogged(dbg, cmd_args, error=True, simple=True, exp_rc=0):
     """
     p = subprocess.Popen(
         cmd_args,
+        encoding="utf-8",
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         close_fds=True
@@ -181,7 +181,7 @@ def index(iterable, entry, instance=1):
         raise ValueError("'instance' must be different from 0")
 
     idx = 0
-    for i in xrange(instance):
+    for i in range(instance):
         try:
             idx += iterable[idx:].index(entry) + 1
         except ValueError:
@@ -277,7 +277,7 @@ def log_exceptions_in_function(function):
 
 def get_sr_metadata(dbg, sr):
     meta = None
-    u = urlparse.urlparse(sr)
+    u = urllib.parse.urlparse(sr)
     if u.scheme != 'file':
         raise Exception('Unknown scheme')
     metapath = os.path.join(u.path, 'meta.json')
@@ -288,7 +288,7 @@ def get_sr_metadata(dbg, sr):
 
 
 def update_sr_metadata(dbg, sr, update_dict):
-    u = urlparse.urlparse(sr)
+    u = urllib.parse.urlparse(sr)
     if u.scheme == 'file':
         # Getting meta.lock to avoid race during meta.json updates
         metalockpath = os.path.join(u.path, 'meta.lock')
@@ -321,7 +321,7 @@ def update_sr_metadata(dbg, sr, update_dict):
 
 
 def dump_sr_metadata(dbg, sr, path):
-    u = urlparse.urlparse(sr)
+    u = urllib.parse.urlparse(sr)
     if u.scheme == 'file':
         metalock = lock_file(dbg, os.path.join(u.path, 'meta.lock'), mode='w+')
         try:

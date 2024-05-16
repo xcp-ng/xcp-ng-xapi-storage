@@ -1,11 +1,11 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 Daemon to backup SQL database and metadata.
 """
 import sys
 import time
 import traceback
-import urlparse
+import urllib.parse
 
 from xapi.storage import log
 from xapi.storage.libs import util
@@ -15,7 +15,7 @@ LOG_DOMAIN = 'db_backup'
 
 def backup(uri, callbacks):
     util.daemonize()
-    mnt_path = urlparse.urlparse(uri).path
+    mnt_path = urllib.parse.urlparse(uri).path
     backups_path = "{}/db_backups".format(mnt_path)
     util.mkdir_p(backups_path)
     while True:

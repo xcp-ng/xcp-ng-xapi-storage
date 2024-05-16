@@ -1,4 +1,3 @@
-from __future__ import absolute_import, division
 import uuid
 
 from xapi.storage import log

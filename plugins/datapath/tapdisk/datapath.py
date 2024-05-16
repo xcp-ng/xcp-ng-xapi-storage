@@ -1,6 +1,6 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
-import urlparse
+import urllib.parse
 import os
 import sys
 import xapi
@@ -12,7 +12,7 @@ from xapi.storage import log
 
 
 def get_sr_callbacks(dbg, uri):
-    u = urlparse.urlparse(uri)
+    u = urllib.parse.urlparse(uri)
     sr = u.netloc
     sys.path.insert(
         0,

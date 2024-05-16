@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 
 import time
 import subprocess
@@ -43,7 +43,7 @@ def found_new_qdisk(domid, devid, uuid):
             connected = True
         except:
             if count > 5:
-                print "ERROR: not delivering xen-watch-device %s" % params
+                print("ERROR: not delivering xen-watch-device %s" % params)
                 return
             print ("got exception {};"
                    " sleeping before attempting reconnect...".format(
@@ -51,9 +51,9 @@ def found_new_qdisk(domid, devid, uuid):
             time.sleep(1)
             count += 1
 
-    print "calling: xen-watch-device %s" % params
+    print("calling: xen-watch-device %s" % params)
     res = q.command('xen-watch-device', **params)
-    print "result: %s" % res
+    print("result: %s" % res)
 
 
 proc = watch("/local/domain/0/backend")

@@ -1,6 +1,6 @@
-from xmlrpclib import Transport
-from httplib import HTTPConnection
-from backend import PluginBackend
+from xmlrpc.client import Transport
+from http.client import HTTPConnection
+from .backend import PluginBackend
 
 SOCKPATH = '/var/xapi/xcp-rrdd'
 
@@ -37,7 +37,7 @@ class PluginControl(object):
             raise PluginControlError(response["ErrorDescription"])
 
     def __init__(self, plugin_name, plugin_domain, read_freq, time_to_reading):
-        from xmlrpclib import ServerProxy
+        from xmlrpc.client import ServerProxy
 
         # The proxy through which we talk to the rrd daemon is the
         # same for all plugins, so we just initialize it once and
@@ -139,5 +139,5 @@ class PluginControl(object):
             except socket_error:
                 # Log this thing instead of stderr
                 msg = "Failed to contact xcp-rrdd. Sleeping for 5 seconds.."
-                print msg
+                print(msg)
                 sleep(5.0)

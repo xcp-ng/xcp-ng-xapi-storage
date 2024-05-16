@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import importlib
 import os
@@ -19,7 +19,7 @@ from xapi.storage.libs.libcow.volume_implementation import Implementation as \
 class Implementation(DefaultImplementation):
     def create(self, dbg, sr, name, description, size, sharable):
         devices = util.get_sr_metadata(dbg, 'file://' + sr)['devices']
-        devices = map(lambda x: os.path.normpath(x), devices)
+        devices = [os.path.normpath(x) for x in devices]
 
         with VolumeContext(self.callbacks, sr, 'w') as opq:
             image_type = ImageFormat.IMAGE_RAW
@@ -29,14 +29,13 @@ class Implementation(DefaultImplementation):
             with PollLock(opq, 'gl', self.callbacks, 0.5):
                 with self.callbacks.db_context(opq) as db:
                     # List all used devices.
-                    used_devices = map(
-                        lambda x: os.path.realpath(
-                           self.callbacks.volumeGetPath(opq, str(x.id))),
-                        db.get_all_volumes())
+                    used_devices = [
+                        os.path.realpath(self.callbacks.volumeGetPath(opq, str(vol.id)))
+                        for vol in db.get_all_volumes()]
 
                     # Find first free device with the best size.
                     free_device = None
-                    psize = sys.maxint
+                    psize = sys.maxsize
                     for device in devices:
                         if os.path.realpath(device) not in used_devices:
                             device_size = util.get_physical_file_size(device)
