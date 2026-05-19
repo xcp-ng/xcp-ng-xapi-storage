@@ -33,10 +33,12 @@ find_package(Python2 COMPONENTS Interpreter REQUIRED)
 set(DATAPATH_PLUGINS
 #  qdisk
   tapdisk
+  datacore-iscsi
 )
 
 set(VOLUME_PLUGINS
   org.xen.xapi.storage.zfs-vol
+  org.xen.xapi.storage.datacore
 #  org.xen.xapi.storage.ext4-ng
 #  org.xen.xapi.storage.filebased
 #  org.xen.xapi.storage.nfs-ng
