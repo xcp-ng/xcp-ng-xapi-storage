@@ -111,9 +111,15 @@ class DataCoreClient:
         return None
 
     def resize_vdisk(self, vdisk_id, new_size):
-        """Online resize a vDisk. DataCore supports grow only."""
-        return self.post("/virtualdisks/{}".format(vdisk_id),
-                         {"Operation": "Resize", "NewSize": int(new_size)})
+        """Online resize a vDisk via PUT /virtualdisks/{id} with the Size field.
+
+        DataCore does NOT use `POST {"Operation": "Resize"}` for this — that
+        operation is "is not valid for this request". Resize is just a property
+        change like Name/Description, done via PUT. The array accepts shrink
+        as well as grow, but Volume.resize refuses shrink (data-loss risk).
+        """
+        return self.put("/virtualdisks/{}".format(vdisk_id),
+                        {"Size": int(new_size)})
 
     def serve_vdisk(self, vdisk_id, host_id):
         return self.post("/virtualdisks/{}".format(vdisk_id),
