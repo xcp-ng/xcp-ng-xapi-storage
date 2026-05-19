@@ -69,6 +69,18 @@ def _rescan_iscsi():
                    check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 
+def _iter_sd_paths_for_wwn(wwn):
+    """Yield the sd* device names for every Dom0 SCSI path to a given WWN."""
+    out = subprocess.run(["lsblk", "-rno", "NAME,WWN"],
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                         check=False)
+    target = "0x" + wwn.lower()
+    for line in out.stdout.decode().splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[1].lower() == target and parts[0].startswith("sd"):
+            yield parts[0]
+
+
 def _evict_scsi_paths_for_wwn(wwn, dbg):
     """Delete every /dev/sd* path whose WWN matches via /sys/block/<dev>/device/delete.
 
@@ -77,20 +89,36 @@ def _evict_scsi_paths_for_wwn(wwn, dbg):
     never recreates the /dev/disk/by-id/scsi-3<wwn> symlink we wait for.
     """
     try:
-        out = subprocess.run(["lsblk", "-rno", "NAME,WWN"],
-                             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                             check=False)
-        prefix = "0x" + wwn.lower()
-        for line in out.stdout.decode().splitlines():
-            parts = line.split()
-            if len(parts) >= 2 and parts[1].lower() == prefix and parts[0].startswith("sd"):
-                sysfile = "/sys/block/{}/device/delete".format(parts[0])
-                if os.path.exists(sysfile):
-                    log.debug("{}: evict /dev/{} ({})".format(dbg, parts[0], sysfile))
-                    with open(sysfile, "w") as f:
-                        f.write("1")
+        for name in _iter_sd_paths_for_wwn(wwn):
+            sysfile = "/sys/block/{}/device/delete".format(name)
+            if os.path.exists(sysfile):
+                log.debug("{}: evict /dev/{}".format(dbg, name))
+                with open(sysfile, "w") as f:
+                    f.write("1")
     except Exception as e:
         log.error("{}: scsi evict failed: {}".format(dbg, e))
+
+
+def _tune_scsi_scheduler_for_wwn(wwn, dbg, scheduler="noop"):
+    """Set the block-layer I/O scheduler on every /dev/sd* path matching wwn.
+
+    XCP-ng 8.3's kernel defaults SCSI devices to cfq (the legacy spinning-disk
+    scheduler) which adds per-process queueing latency that is actively harmful
+    on iSCSI LUNs. XAPI's own lvmoiscsi backend explicitly tunes its devices to
+    noop; we match that so SR types compare apples-to-apples.
+    """
+    try:
+        for name in _iter_sd_paths_for_wwn(wwn):
+            sysfile = "/sys/block/{}/queue/scheduler".format(name)
+            if os.path.exists(sysfile):
+                try:
+                    with open(sysfile, "w") as f:
+                        f.write(scheduler)
+                    log.debug("{}: set scheduler={} on /dev/{}".format(dbg, scheduler, name))
+                except IOError as e:
+                    log.error("{}: scheduler set failed on /dev/{}: {}".format(dbg, name, e))
+    except Exception as e:
+        log.error("{}: scheduler tuning failed: {}".format(dbg, e))
 
 
 class Implementation(xapi.storage.api.v5.datapath.Datapath_skeleton):
@@ -117,6 +145,7 @@ class Implementation(xapi.storage.api.v5.datapath.Datapath_skeleton):
         client.serve_vdisk(vdisk_id, host_id)
         _rescan_iscsi()
         dev = _wait_for_device(wwn, dbg)
+        _tune_scsi_scheduler_for_wwn(wwn, dbg)
 
         return {
             "implementations": [
