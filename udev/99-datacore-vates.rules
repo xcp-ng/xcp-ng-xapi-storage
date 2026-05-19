@@ -1,0 +1,23 @@
+# udev rules for DataCore SANsymphony virtual disks served via iSCSI.
+#
+# Pins the block-layer I/O scheduler to `noop` on:
+#   1. SCSI sd paths whose vendor is "DataCore" (the underlying iSCSI LUNs)
+#   2. dm-multipath devices wrapping DataCore LUNs (WWID prefix 360030d90,
+#      NAA type 6 + DataCore IEEE OUI)
+#
+# Why noop: XCP-ng 8.3 (kernel 4.19) defaults rotational SCSI devices to cfq,
+# whose per-process queueing adds latency that's actively harmful on a
+# low-latency iSCSI LUN served by DataCore's mirrored array. XAPI's own
+# lvmoiscsi backend tunes the same way; this rule covers the SMAPIv3 path.
+#
+# Naming 99-* ensures we run after the distro/XCP-ng default rules so our
+# setting wins. ACTION matches "add" (initial discovery) and "change"
+# (re-detect after Serve/Unserve cycles, multipath reconfigure events).
+
+ACTION=="add|change", SUBSYSTEM=="block", KERNEL=="sd*", \
+  ATTRS{vendor}=="DataCore", \
+  ATTR{queue/scheduler}="noop"
+
+ACTION=="add|change", SUBSYSTEM=="block", KERNEL=="dm-*", \
+  ENV{DM_NAME}=="?60030d90*", \
+  ATTR{queue/scheduler}="noop"

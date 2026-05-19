@@ -176,6 +176,16 @@ foreach (PLUGIN_NAME ${VOLUME_PLUGINS})
   endforeach ()
 endforeach ()
 
+# Install DataCore host-tuning snippets (udev + multipath.conf.d)
+install(FILES udev/99-datacore-vates.rules
+  DESTINATION /etc/udev/rules.d
+  PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ
+)
+install(FILES multipath/datacore-vates.conf
+  DESTINATION /etc/multipath/conf.d
+  PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ
+)
+
 # Install doc.
 install(FILES LICENSE README.md
   DESTINATION ${CMAKE_INSTALL_DOCDIR}
