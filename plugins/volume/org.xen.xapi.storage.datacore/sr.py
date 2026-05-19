@@ -107,7 +107,15 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
 
     def detach(self, dbg, sr):
         log.debug("{}: SR.detach sr={}".format(dbg, sr))
-        _iscsi_teardown(dbg)
+        # NOTE: we deliberately do NOT log out iSCSI sessions here. Other SRs
+        # (legacy lvmoiscsi, or another DataCore SR on the same array) may
+        # share the same target IQNs; an unconditional `iscsiadm -m node
+        # --logout` kills their live paths too. dm-multipath then has no
+        # paths, `no_path_retry queue` blocks I/O, and any subsequent LV
+        # deactivate / pbd-unplug hangs (observed; also explained the slow
+        # host shutdown after SMAPIv3 + SMAPIv1 coexistence).
+        # iSCSI sessions are cheap to leave open; the next SR.attach
+        # re-logs in idempotently. Reference-counting is a future fix.
         try:
             os.unlink(_stash_path(sr))
         except FileNotFoundError:
