@@ -32,6 +32,8 @@ class Implementation(xapi.storage.api.v5.plugin.Plugin_skeleton):
                 "VDI_DETACH",
                 "VDI_ACTIVATE",
                 "VDI_DEACTIVATE",
+                "VDI_RESIZE",
+                "VDI_RESIZE_ONLINE",
             ],
             "configuration": {
                 "rest-endpoint": "DataCore REST base URL, e.g. https://datacore.example.com",

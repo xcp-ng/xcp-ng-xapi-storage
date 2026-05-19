@@ -48,6 +48,23 @@ class Implementation(xapi.storage.api.v5.volume.Volume_skeleton):
             return
         client.delete_vdisk(d["Id"])
 
+    def resize(self, dbg, sr, key, new_size):
+        log.debug("{}: Volume.resize sr={} key={} new_size={}".format(dbg, sr, key, new_size))
+        cfg = sr_mod._read_stash(sr)
+        client = datacoreapi.DataCoreClient.from_sr_config(cfg)
+        d = datacoreapi.find_vdisk_by_vdi_uuid(client, sr, key)
+        if d is None:
+            raise xapi.storage.api.v5.volume.Volume_does_not_exist(key)
+        current = d["Size"]["Value"]
+        if new_size < current:
+            raise Exception(
+                "Volume.resize: shrinking not supported (current={} new={})".format(
+                    current, new_size))
+        if new_size == current:
+            log.debug("{}: Volume.resize: already at {} bytes, no-op".format(dbg, current))
+            return
+        client.resize_vdisk(d["Id"], new_size)
+
     def stat(self, dbg, sr, key):
         log.debug("{}: Volume.stat sr={} key={}".format(dbg, sr, key))
         cfg = sr_mod._read_stash(sr)
@@ -81,6 +98,8 @@ if __name__ == "__main__":
         cmd.create()
     elif base == "Volume.destroy":
         cmd.destroy()
+    elif base == "Volume.resize":
+        cmd.resize()
     elif base == "Volume.stat":
         cmd.stat()
     elif base == "Volume.set_description":

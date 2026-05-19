@@ -110,6 +110,11 @@ class DataCoreClient:
                 return d
         return None
 
+    def resize_vdisk(self, vdisk_id, new_size):
+        """Online resize a vDisk. DataCore supports grow only."""
+        return self.post("/virtualdisks/{}".format(vdisk_id),
+                         {"Operation": "Resize", "NewSize": int(new_size)})
+
     def serve_vdisk(self, vdisk_id, host_id):
         return self.post("/virtualdisks/{}".format(vdisk_id),
                          {"Operation": "Serve", "Host": host_id})
