@@ -150,26 +150,41 @@ def _flush_multipath(wwn, dbg):
     log.debug("{}: multipath -f {} exit={}".format(dbg, mpath_wwid, r.returncode))
 
 
-def _tune_scsi_scheduler_for_wwn(wwn, dbg, scheduler="noop"):
-    """Set the block-layer I/O scheduler on every /dev/sd* path matching wwn.
-
-    XCP-ng 8.3's kernel defaults SCSI devices to cfq (the legacy spinning-disk
-    scheduler) which adds per-process queueing latency that is actively harmful
-    on iSCSI LUNs. XAPI's own lvmoiscsi backend explicitly tunes its devices to
-    noop; we match that so SR types compare apples-to-apples.
-    """
+def _write_sysfs(path, value, dbg):
     try:
-        for name in _iter_sd_paths_for_wwn(wwn):
-            sysfile = "/sys/block/{}/queue/scheduler".format(name)
-            if os.path.exists(sysfile):
-                try:
-                    with open(sysfile, "w") as f:
-                        f.write(scheduler)
-                    log.debug("{}: set scheduler={} on /dev/{}".format(dbg, scheduler, name))
-                except IOError as e:
-                    log.error("{}: scheduler set failed on /dev/{}: {}".format(dbg, name, e))
-    except Exception as e:
-        log.error("{}: scheduler tuning failed: {}".format(dbg, e))
+        with open(path, "w") as f:
+            f.write(value)
+        log.debug("{}: wrote {!r} to {}".format(dbg, value, path))
+        return True
+    except IOError as e:
+        log.error("{}: write to {} failed: {}".format(dbg, path, e))
+        return False
+
+
+def _tune_scheduler(wwn, dbg, scheduler="noop"):
+    """Set the block-layer I/O scheduler on every device involved in this LUN.
+
+    XCP-ng 8.3's kernel defaults SCSI devices (and dm-multipath devices) to cfq
+    — the legacy spinning-disk scheduler that adds per-process queueing latency
+    actively harmful on iSCSI LUNs. XAPI's own lvmoiscsi backend tunes its
+    devices to noop; we match that so SR types compare apples-to-apples.
+
+    Tunes BOTH the underlying sd paths (in case any I/O bypasses dm) AND the
+    /dev/mapper dm device that actually carries blkback's I/O. Must run AFTER
+    `multipath` has settled — earlier runs get clobbered by udev events the
+    multipath reconfigure emits.
+    """
+    for name in _iter_sd_paths_for_wwn(wwn):
+        sysfile = "/sys/block/{}/queue/scheduler".format(name)
+        if os.path.exists(sysfile):
+            _write_sysfs(sysfile, scheduler, dbg)
+
+    mpath = "/dev/mapper/3" + wwn.lower()
+    if os.path.exists(mpath):
+        dm_name = os.path.basename(os.path.realpath(mpath))  # e.g. "dm-4"
+        sysfile = "/sys/block/{}/queue/scheduler".format(dm_name)
+        if os.path.exists(sysfile):
+            _write_sysfs(sysfile, scheduler, dbg)
 
 
 class Implementation(xapi.storage.api.v5.datapath.Datapath_skeleton):
@@ -196,7 +211,6 @@ class Implementation(xapi.storage.api.v5.datapath.Datapath_skeleton):
         client.serve_vdisk(vdisk_id, host_id)
         _rescan_iscsi()
         dev = _wait_for_device(wwn, dbg)
-        _tune_scsi_scheduler_for_wwn(wwn, dbg)
 
         # Prefer /dev/mapper/<wwid> when multipath is active so I/O can go via
         # dm-multipath (failover or load-balanced per /etc/multipath.conf).
@@ -207,6 +221,12 @@ class Implementation(xapi.storage.api.v5.datapath.Datapath_skeleton):
             mpath = _wait_for_mpath(wwn, dbg)
             if mpath is not None:
                 dev = mpath
+
+        # Tune the scheduler last — multipath reconfigure emits udev events
+        # that reset queue settings on the sd paths back to the kernel default
+        # (cfq on XCP-ng 8.3). Also tunes the dm-multipath device itself, which
+        # has its own queue separate from the underlying sd's.
+        _tune_scheduler(wwn, dbg)
 
         return {
             "implementations": [
