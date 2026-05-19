@@ -5,16 +5,18 @@ Datapath for DataCore vDisks served via iSCSI.
 
 URI shape:  datacore-iscsi://<sr-uuid>/<vdisk-id>
 
-`attach`  calls Operation: Serve on the array, rescans iSCSI sessions, and waits
-          for /dev/disk/by-id/scsi-3<ScsiDeviceIdString> to appear in Dom0.
-`detach`  calls Operation: Unserve and rescans (so the SCSI sd* entry is removed).
+`attach`  Serve on the array, rescan iSCSI, wait for the per-path sd device,
+          tune scheduler, register WWID with dm-multipath (when multipathd is
+          active), wait for /dev/mapper/3<wwn>, and return that path.
+`detach`  Flush the dm-multipath map first, then evict the SCSI paths, then
+          Unserve on the array.
 
-`open/close/activate/deactivate` are essentially no-ops — the device is fully
-usable as soon as `attach` returns.
+If multipathd is not active on the host (single-path setup), `attach` returns
+the /dev/disk/by-id/scsi-3<wwn> symlink instead, and `detach` skips the flush.
 
 Assumes `SR.attach` has already established iSCSI sessions to the DataCore
-portals (DataCore's Serve refuses with ErrorCode 4 if there's no live session
-between initiator and target — see datacore.md §2.1.2).
+portals — DataCore's Serve refuses with ErrorCode 4 if there's no live session
+between initiator and target.
 """
 
 import json
@@ -38,6 +40,8 @@ import datacoreapi  # noqa: E402
 STASH_DIR = "/run/datacore-sr"
 DEVICE_POLL_TIMEOUT = 30  # seconds
 DEVICE_POLL_INTERVAL = 0.5
+MPATH_POLL_TIMEOUT = 15
+MPATH_POLL_INTERVAL = 0.3
 
 
 def _read_stash(sr_uuid):
@@ -99,6 +103,53 @@ def _evict_scsi_paths_for_wwn(wwn, dbg):
         log.error("{}: scsi evict failed: {}".format(dbg, e))
 
 
+def _multipath_active():
+    """True if multipathd is running. Drives whether attach uses /dev/mapper."""
+    r = subprocess.run(["systemctl", "is-active", "multipathd"],
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    return r.stdout.decode().strip() == "active"
+
+
+def _register_with_multipath(wwn, dbg):
+    """Add the WWID to /etc/multipath/wwids and trigger map creation.
+
+    XCP-ng's multipath.conf sets `find_multipaths yes`, so dm-multipath only
+    builds a map for WWIDs that have been explicitly registered. XAPI's
+    lvmoiscsi backend does the equivalent at SR.create time; we do it per
+    vDisk attach.
+    """
+    mpath_wwid = "3" + wwn.lower()
+    subprocess.run(["multipath", "-a", mpath_wwid],
+                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    # Scan; idempotent — already-existing maps are left alone, new eligible
+    # WWIDs get a map created.
+    subprocess.run(["multipath"],
+                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    log.debug("{}: multipath registered {}".format(dbg, mpath_wwid))
+
+
+def _wait_for_mpath(wwn, dbg):
+    """Poll for /dev/mapper/3<wwn>. Returns the path or None on timeout."""
+    target = "/dev/mapper/3" + wwn.lower()
+    deadline = time.time() + MPATH_POLL_TIMEOUT
+    while time.time() < deadline:
+        if os.path.exists(target):
+            log.debug("{}: mpath device ready {}".format(dbg, target))
+            return target
+        time.sleep(MPATH_POLL_INTERVAL)
+    log.error("{}: mpath device {} did not appear within {}s".format(
+        dbg, target, MPATH_POLL_TIMEOUT))
+    return None
+
+
+def _flush_multipath(wwn, dbg):
+    """Flush the dm map for this WWID. Non-zero exit is harmless (no map)."""
+    mpath_wwid = "3" + wwn.lower()
+    r = subprocess.run(["multipath", "-f", mpath_wwid],
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    log.debug("{}: multipath -f {} exit={}".format(dbg, mpath_wwid, r.returncode))
+
+
 def _tune_scsi_scheduler_for_wwn(wwn, dbg, scheduler="noop"):
     """Set the block-layer I/O scheduler on every /dev/sd* path matching wwn.
 
@@ -147,6 +198,16 @@ class Implementation(xapi.storage.api.v5.datapath.Datapath_skeleton):
         dev = _wait_for_device(wwn, dbg)
         _tune_scsi_scheduler_for_wwn(wwn, dbg)
 
+        # Prefer /dev/mapper/<wwid> when multipath is active so I/O can go via
+        # dm-multipath (failover or load-balanced per /etc/multipath.conf).
+        # Falls back to the sd-by-id path if multipath isn't available or the
+        # map doesn't materialize.
+        if _multipath_active():
+            _register_with_multipath(wwn, dbg)
+            mpath = _wait_for_mpath(wwn, dbg)
+            if mpath is not None:
+                dev = mpath
+
         return {
             "implementations": [
                 ["XenDisk", {
@@ -176,9 +237,13 @@ class Implementation(xapi.storage.api.v5.datapath.Datapath_skeleton):
             return
         client = datacoreapi.DataCoreClient.from_sr_config(cfg)
         d = client.find_vdisk_by_id(vdisk_id)
-        # Evict SCSI devices BEFORE Unserve so the kernel sees clean disconnect.
+        # Flush dm-multipath first so it releases its hold on the underlying
+        # sd paths, then evict the sd paths so the kernel sees a clean
+        # disconnect, then Unserve on the array.
         if d:
-            _evict_scsi_paths_for_wwn(d["ScsiDeviceIdString"].lower(), dbg)
+            wwn = d["ScsiDeviceIdString"].lower()
+            _flush_multipath(wwn, dbg)
+            _evict_scsi_paths_for_wwn(wwn, dbg)
         try:
             client.unserve_vdisk(vdisk_id, host_id)
         except Exception as e:
