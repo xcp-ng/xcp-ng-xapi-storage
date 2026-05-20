@@ -45,7 +45,7 @@ class Implementation(xapi.storage.api.v5.plugin.Plugin_skeleton):
                 "first-pool": "Pool ID on server A: '{ServerA-Id}:{poolA-guid}'",
                 "second-pool": "Pool ID on server B: '{ServerB-Id}:{poolB-guid}'",
                 "iscsi-portals": "Comma-separated DataCore iSCSI portal IPs, e.g. '192.168.1.87,192.168.1.88'",
-                "host-id": "DataCore host object ID for this XCP-ng host (initiator IQN will be auto-registered against it)",
+                "host-id": "DataCore host object ID for this XCP-ng host (optional after first attach: SR.attach resolves the host-id via /ports lookup once the IQN is registered)",
                 "tls-verify": "Validate TLS cert? Default 'false' (DataCore default install uses a self-signed cert)",
             },
             "required_cluster_stack": [],

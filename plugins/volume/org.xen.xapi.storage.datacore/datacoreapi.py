@@ -29,6 +29,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 API_PATH = "/RestService/rest.svc/1.0"
 VOLUME_TYPE_MIRRORED = 2
 SNAPSHOT_TYPE_DIFFERENTIAL = 1  # instant, COW on the array, source-dependent
+PORT_TYPE_ISCSI = 3  # iSCSI initiator/target port in /ports (4 was seen for FC/other)
 
 # Observed empirically (probe, 2026-05-20): a freshly created mirrored vDisk
 # reports DiskStatus=1 ("not up-to-date" — mirror legs still syncing) and
@@ -230,6 +231,24 @@ class DataCoreClient:
     def unserve_vdisk(self, vdisk_id, host_id):
         return self.post("/virtualdisks/{}".format(vdisk_id),
                          {"Operation": "Unserve", "Host": host_id})
+
+    def find_host_id_by_iqn(self, iqn):
+        """Look up which DataCore host owns a given initiator IQN.
+
+        DataCore exposes a flat `/ports` listing where each port carries
+        HostId + PortName. We scan it for an iSCSI port whose PortName matches.
+
+        Returns the HostId string, or None if the IQN isn't registered yet.
+        First-time setup (operator added the host in the GUI but hasn't
+        registered the initiator IQN) falls into the None branch — the
+        caller must surface a clear bootstrap instruction at that point.
+        """
+        ports = self.get("/ports") or []
+        for p in ports:
+            if (p.get("PortType") == PORT_TYPE_ISCSI
+                    and p.get("PortName") == iqn):
+                return p.get("HostId")
+        return None
 
     def register_port_idempotent(self, host_id, iqn):
         """Register an initiator IQN against the DataCore host object.

@@ -97,16 +97,36 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         client.list_pools()
         _write_stash(sr_uuid, configuration)
 
-        host_id = configuration.get("host-id")
         portals_raw = configuration.get("iscsi-portals", "")
-        if host_id and portals_raw:
+        if portals_raw:
             iqn = _host_iqn()
-            log.debug("{}: SR.attach register IQN {} against DataCore host {}".format(dbg, iqn, host_id))
+            host_id = configuration.get("host-id")
+            if not host_id:
+                # Re-attach path after a successful first-time setup: the
+                # IQN is already registered against a DataCore host, so we
+                # can resolve the host-id directly. First-time setup still
+                # needs device-config:host-id (or an operator-side IQN
+                # pre-registration) to bootstrap the host object.
+                host_id = datacoreapi.find_host_id_by_iqn(client, iqn)
+                if not host_id:
+                    raise Exception(
+                        "SR.attach: initiator IQN {!r} is not registered "
+                        "against any DataCore host, and device-config "
+                        "has no 'host-id' to bootstrap from. Either set "
+                        "device-config:host-id=<datacore-host-id> once "
+                        "(plugin will RegisterPort the IQN and subsequent "
+                        "attaches will resolve automatically), or register "
+                        "the IQN against an existing host in the DataCore "
+                        "GUI / PowerShell first.".format(iqn))
+                log.info("{}: SR.attach resolved DataCore host-id={} via IQN {}".format(
+                    dbg, host_id, iqn))
+            else:
+                log.debug("{}: SR.attach using configured host-id={}".format(dbg, host_id))
             client.register_port_idempotent(host_id, iqn)
             portals = [p.strip() for p in portals_raw.split(",") if p.strip()]
             _iscsi_setup(dbg, portals, iqn)
         else:
-            log.debug("{}: SR.attach skipping iscsi setup (no host-id or iscsi-portals)".format(dbg))
+            log.debug("{}: SR.attach skipping iscsi setup (no iscsi-portals)".format(dbg))
         return sr_uuid
 
     def detach(self, dbg, sr):
