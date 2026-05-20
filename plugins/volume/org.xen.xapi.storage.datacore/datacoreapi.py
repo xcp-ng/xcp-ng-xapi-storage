@@ -15,6 +15,7 @@ API quirks (discovered in the spike — see datacore.md):
 """
 
 import json
+import os
 from urllib.parse import urlparse
 
 import requests
@@ -49,25 +50,80 @@ def _truthy(v):
     return str(v).lower() in ("true", "1", "yes", "on")
 
 
+# tmpfs directory shared with sr.py's STASH_DIR. Same root-only access model
+# as XAPI's secret store (`session.xenapi.secret.get_value` requires root in
+# dom0), so caching here doesn't lower the security bar.
+PASSWORD_CACHE_DIR = "/run/datacore-sr"
+
+
+def _password_cache_path(sr_uuid):
+    return os.path.join(PASSWORD_CACHE_DIR, "{}.pw".format(sr_uuid))
+
+
+def _read_cached_password(sr_uuid):
+    try:
+        with open(_password_cache_path(sr_uuid)) as f:
+            return f.read()
+    except FileNotFoundError:
+        return None
+
+
+def _write_cached_password(sr_uuid, password):
+    """Atomic write with 0600 perms. Best-effort: failures don't break the call."""
+    try:
+        os.makedirs(PASSWORD_CACHE_DIR, exist_ok=True)
+        dst = _password_cache_path(sr_uuid)
+        tmp = dst + ".tmp"
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(password)
+        os.replace(tmp, dst)
+    except OSError:
+        # Caching is purely an optimisation; never block a working call.
+        pass
+
+
+def clear_password_cache(sr_uuid):
+    """Remove the cached password for an SR. Called by sr.py on SR.attach
+    (to invalidate before a credential refresh) and SR.detach (cleanup)."""
+    try:
+        os.unlink(_password_cache_path(sr_uuid))
+    except FileNotFoundError:
+        pass
+
+
 def _resolve_password(cfg):
     """
     XAPI silently rewrites the device-config key `password` to `password_secret`
     holding a Secret UUID. The plugin must look up the plaintext via XAPI.
     Plain `password` is supported as a passthrough for direct (non-XAPI) testing.
+
+    Resolved plaintexts are cached on tmpfs (PASSWORD_CACHE_DIR) keyed by
+    sr-uuid so that the dozens of plugin sub-process invocations XAPI fires
+    per SR operation don't each open + log out an XAPI session. The cache
+    is populated lazily and invalidated by sr.py at SR.attach/SR.detach.
     """
     if "password" in cfg:
         return cfg["password"]
     secret_uuid = cfg.get("password_secret")
     if not secret_uuid:
         raise DataCoreError("No 'password' or 'password_secret' in SR configuration")
+    sr_uuid = cfg.get("sr-uuid")
+    if sr_uuid:
+        cached = _read_cached_password(sr_uuid)
+        if cached is not None:
+            return cached
     import XenAPI
     session = XenAPI.xapi_local()
     session.xenapi.login_with_password("", "", "1.0", "datacore-plugin")
     try:
         ref = session.xenapi.secret.get_by_uuid(secret_uuid)
-        return session.xenapi.secret.get_value(ref)
+        pw = session.xenapi.secret.get_value(ref)
     finally:
         session.xenapi.session.logout()
+    if sr_uuid:
+        _write_cached_password(sr_uuid, pw)
+    return pw
 
 
 def _build_retry():

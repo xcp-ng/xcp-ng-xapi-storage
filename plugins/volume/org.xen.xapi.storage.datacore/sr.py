@@ -89,6 +89,10 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         sr_uuid = configuration.get("sr-uuid")
         if not sr_uuid:
             raise Exception("SR.attach: configuration missing 'sr-uuid' (was SR.create run?)")
+        # Invalidate any prior password cache so a credential change on the
+        # operator side (e.g. xe sr-param-set device-config:password=...) is
+        # picked up. The XAPI lookup inside `from_sr_config` will repopulate.
+        datacoreapi.clear_password_cache(sr_uuid)
         client = datacoreapi.DataCoreClient.from_sr_config(configuration)
         client.list_pools()
         _write_stash(sr_uuid, configuration)
@@ -120,6 +124,7 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
             os.unlink(_stash_path(sr))
         except FileNotFoundError:
             pass
+        datacoreapi.clear_password_cache(sr)
 
     def destroy(self, dbg, sr):
         log.debug("{}: SR.destroy sr={}".format(dbg, sr))
