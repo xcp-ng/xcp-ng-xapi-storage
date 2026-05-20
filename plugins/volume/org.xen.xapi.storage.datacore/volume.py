@@ -93,6 +93,11 @@ class Implementation(xapi.storage.api.v5.volume.Volume_skeleton):
             log.debug("{}: Volume.resize: already at {} bytes, no-op".format(dbg, current))
             return
         client.resize_vdisk(d["Id"], new_size)
+        # Grow triggers a brief mirror re-sync (DiskStatus 0 -> 1 -> 0).
+        # Block until Online so an immediately-following snapshot/clone
+        # doesn't race the "not up-to-date" check the same way the
+        # post-create wait protects against.
+        client.wait_for_vdisk_online(d["Id"])
         log.info("{}: Volume.resize: vdisk={} {} -> {} bytes".format(
             dbg, d["Id"], current, new_size))
 

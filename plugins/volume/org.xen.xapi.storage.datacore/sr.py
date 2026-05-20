@@ -185,7 +185,7 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
                 # can resolve the host-id directly. First-time setup still
                 # needs device-config:host-id (or an operator-side IQN
                 # pre-registration) to bootstrap the host object.
-                host_id = datacoreapi.find_host_id_by_iqn(client, iqn)
+                host_id = client.find_host_id_by_iqn(iqn)
                 if not host_id:
                     raise Exception(
                         "SR.attach: initiator IQN {!r} is not registered "

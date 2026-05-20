@@ -264,16 +264,32 @@ class DataCoreClient:
                 return d
         return None
 
-    def resize_vdisk(self, vdisk_id, new_size):
+    def resize_vdisk(self, vdisk_id, new_size, snap_settle_timeout=15.0):
         """Online resize a vDisk via PUT /virtualdisks/{id} with the Size field.
 
         DataCore does NOT use `POST {"Operation": "Resize"}` for this — that
         operation is "is not valid for this request". Resize is just a property
         change like Name/Description, done via PUT. The array accepts shrink
         as well as grow, but Volume.resize refuses shrink (data-loss risk).
+
+        Snapshot-cleanup is async on the array side. After DELETE on a
+        snapshot returns and `/snapshots` is empty, PUT on the parent's
+        Size still returns 400 "Virtual disk ... cannot be resized
+        because it has snapshots attached" for a few seconds. We poll
+        the same call with backoff up to snap_settle_timeout so callers
+        don't have to think about the race.
         """
-        return self.put("/virtualdisks/{}".format(vdisk_id),
-                        {"Size": int(new_size)})
+        deadline = time.monotonic() + snap_settle_timeout
+        while True:
+            try:
+                return self.put("/virtualdisks/{}".format(vdisk_id),
+                                {"Size": int(new_size)})
+            except DataCoreError as e:
+                if "snapshots attached" not in str(e).lower():
+                    raise
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.5)
 
     def serve_vdisk(self, vdisk_id, host_id):
         """Serve the vDisk to `host_id`. Idempotent — re-Serving a vDisk
