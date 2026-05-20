@@ -65,10 +65,73 @@ def _read_stash(sr_handle):
 
 class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
     def probe(self, dbg, configuration):
+        """Enumerate the (first-pool, second-pool) pairs available on the
+        DataCore endpoint so the operator can pick one and assemble the
+        full SR.create command.
+
+        The SMAPIv3 v5 API expects a list of
+            {configuration, complete, sr, extra_info}
+        records — one per candidate configuration. We surface one record
+        per cross-server pool pair, mark complete=False (the operator still
+        needs to add iscsi-portals + host-id + password), and put
+        human-readable pool/server names in extra_info so `xe sr-probe`
+        output is readable.
+
+        With this in place, the discovery workflow becomes:
+
+            xe sr-probe type=datacore \\
+                device-config:rest-endpoint=https://<dc>  \\
+                device-config:username=<user>             \\
+                device-config:password=<pw>
+        """
         log.debug("{}: SR.probe".format(dbg))
         client = datacoreapi.DataCoreClient.from_sr_config(configuration)
-        client.list_pools()
-        return {"srs": [], "uris": []}
+        pools = client.list_pools()
+
+        # Group pools by their owning server. Pool ID format is
+        # "{ServerId}:{pool-guid}" — the ServerId is the leading prefix and
+        # also appears as a top-level field on each pool record.
+        pools_by_server = {}
+        for p in pools:
+            server_id = p.get("ServerId") or datacoreapi._server_id_from_pool(
+                p.get("Id", ""))
+            if server_id:
+                pools_by_server.setdefault(server_id, []).append(p)
+
+        # Enumerate cross-server pairs. (A, B) and (B, A) are the same
+        # mirror at the array level so we dedupe by sorting the server
+        # IDs: only emit pairs where first.ServerId < second.ServerId.
+        # The operator can swap first/second on the actual sr-create
+        # command if they want a specific PreferredServer.
+        results = []
+        servers = sorted(pools_by_server.keys())
+        for i, srv_a in enumerate(servers):
+            for srv_b in servers[i + 1:]:
+                for p_a in pools_by_server[srv_a]:
+                    for p_b in pools_by_server[srv_b]:
+                        suggested = dict(configuration)
+                        suggested["first-pool"] = p_a.get("Id", "")
+                        suggested["second-pool"] = p_b.get("Id", "")
+                        # NOTE: omit the `sr` key entirely (don't set to None).
+                        # The SMAPIv5 API type-checker on dom0 treats
+                        # `'sr' in entry` as "key present" and then unconditionally
+                        # subscripts entry['sr']['sr'], which crashes with
+                        # "'NoneType' object is not subscriptable" if we set
+                        # sr=None. Omitting the key is the correct way to say
+                        # "no existing SR is associated with this candidate".
+                        results.append({
+                            "configuration": suggested,
+                            "complete": False,
+                            "extra_info": {
+                                "first-pool-name":  p_a.get("Alias") or p_a.get("Caption") or "",
+                                "first-server-id":  srv_a,
+                                "second-pool-name": p_b.get("Alias") or p_b.get("Caption") or "",
+                                "second-server-id": srv_b,
+                            },
+                        })
+        log.info("{}: SR.probe surfaced {} candidate pool pair(s) across {} server(s)".format(
+            dbg, len(results), len(servers)))
+        return results
 
     def create(self, dbg, sr_uuid, configuration, name, description):
         log.debug("{}: SR.create uuid={} name={!r} cfg-keys={}".format(
