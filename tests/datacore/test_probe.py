@@ -8,13 +8,17 @@ import sr as sr_mod
 
 
 class FakePoolsClient(datacoreapi.DataCoreClient):
-    """Skip session setup; canned response on /pools."""
-    def __init__(self, pools):
+    """Skip session setup; canned responses on /pools and /ports."""
+    def __init__(self, pools, ports=None):
         self._pools = pools
+        self._ports = ports or []
 
     def get(self, path):
-        assert path == "/pools", path
-        return self._pools
+        if path == "/pools":
+            return self._pools
+        if path == "/ports":
+            return self._ports
+        raise AssertionError("unexpected GET: " + path)
 
 
 def _call_probe(client, monkeypatch, configuration):
@@ -119,6 +123,79 @@ def test_probe_preserves_input_configuration_keys(monkeypatch):
     for r in results:
         for k, v in inp.items():
             assert r["configuration"][k] == v
+
+
+def _port(server_id, portal_ips, port_name="iqn.2000-08.com.datacore:tgt"):
+    """Build a /ports entry shaped like the real DataCore output."""
+    return {
+        "HostId": server_id,
+        "PortName": port_name,
+        "IScsiPortStateInfo": {
+            "PortalsState": [
+                {"Address": {"Address": ip}} for ip in portal_ips
+            ],
+        },
+    }
+
+
+def test_probe_suggests_one_portal_per_server(monkeypatch):
+    """The default iscsi-portals string in the suggested configuration:
+    one IP per server, simplest HA. Operator can override."""
+    c = FakePoolsClient(
+        pools=[
+            {"Id": "SRV-A:{pa}", "ServerId": "SRV-A", "Alias": "A"},
+            {"Id": "SRV-B:{pb}", "ServerId": "SRV-B", "Alias": "B"},
+        ],
+        ports=[
+            _port("SRV-A", ["192.168.1.87"]),
+            _port("SRV-B", ["192.168.1.88"]),
+        ],
+    )
+    results = _call_probe(c, monkeypatch, {})
+    assert results[0]["configuration"]["iscsi-portals"] == "192.168.1.87,192.168.1.88"
+
+
+def test_probe_exposes_all_portals_per_server_in_extra_info(monkeypatch):
+    """When a server has multiple iSCSI ports (multi-NIC), expose them all
+    in extra_info so the operator can build a higher-path-count override."""
+    c = FakePoolsClient(
+        pools=[
+            {"Id": "SRV-A:{pa}", "ServerId": "SRV-A", "Alias": "A"},
+            {"Id": "SRV-B:{pb}", "ServerId": "SRV-B", "Alias": "B"},
+        ],
+        ports=[
+            _port("SRV-A", ["192.168.1.87"]),
+            _port("SRV-A", ["192.168.1.93"]),
+            _port("SRV-A", ["192.168.1.94"]),
+            _port("SRV-B", ["192.168.1.88"]),
+        ],
+    )
+    r = _call_probe(c, monkeypatch, {})[0]
+    assert r["extra_info"]["iscsi-portals-first-server-all"] == \
+        "192.168.1.87,192.168.1.93,192.168.1.94"
+    assert r["extra_info"]["iscsi-portals-second-server-all"] == "192.168.1.88"
+    # Default still uses just the first IP from each server
+    assert r["configuration"]["iscsi-portals"] == "192.168.1.87,192.168.1.88"
+
+
+def test_probe_omits_iscsi_portals_when_unknown(monkeypatch):
+    """If we couldn't discover portals for one of the servers, don't
+    fabricate an iscsi-portals string — leave it absent so the operator
+    notices they need to supply it."""
+    c = FakePoolsClient(
+        pools=[
+            {"Id": "SRV-A:{pa}", "ServerId": "SRV-A", "Alias": "A"},
+            {"Id": "SRV-B:{pb}", "ServerId": "SRV-B", "Alias": "B"},
+        ],
+        ports=[
+            _port("SRV-A", ["192.168.1.87"]),
+            # No ports for SRV-B
+        ],
+    )
+    r = _call_probe(c, monkeypatch, {})[0]
+    assert "iscsi-portals" not in r["configuration"]
+    assert "iscsi-portals-first-server-all" in r["extra_info"]
+    assert "iscsi-portals-second-server-all" not in r["extra_info"]
 
 
 def test_probe_falls_back_to_pool_id_prefix_when_serverid_missing(monkeypatch):

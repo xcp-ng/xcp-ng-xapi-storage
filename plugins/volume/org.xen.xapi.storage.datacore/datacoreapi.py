@@ -295,6 +295,33 @@ class DataCoreClient:
         return self.post("/virtualdisks/{}".format(vdisk_id),
                          {"Operation": "Unserve", "Host": host_id})
 
+    def list_iscsi_target_portals_by_server(self):
+        """Returns {server_id: [portal_ip, ...]} for every iSCSI target portal
+        configured on each DataCore server.
+
+        Identifies target ports (vs the local Microsoft iSCSI initiator on
+        each DataCore server) by checking that PortName is an IQN AND that
+        IScsiPortStateInfo.PortalsState carries one or more Address entries.
+        Initiator ports don't expose a portal (they connect outward, not
+        listen), so the PortalsState presence is the reliable discriminator
+        across DataCore versions.
+        """
+        out = {}
+        for p in (self.get("/ports") or []):
+            if not (p.get("PortName") or "").startswith("iqn."):
+                continue
+            info = p.get("IScsiPortStateInfo") or {}
+            portals = info.get("PortalsState") or []
+            server_id = p.get("HostId")
+            if not server_id:
+                continue
+            for portal in portals:
+                addr_obj = portal.get("Address") or {}
+                addr = addr_obj.get("Address")
+                if addr:
+                    out.setdefault(server_id, []).append(addr)
+        return out
+
     def find_host_id_by_iqn(self, iqn):
         """Look up which DataCore host owns a given initiator IQN.
 

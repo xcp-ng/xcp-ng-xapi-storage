@@ -87,6 +87,7 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         log.debug("{}: SR.probe".format(dbg))
         client = datacoreapi.DataCoreClient.from_sr_config(configuration)
         pools = client.list_pools()
+        portals_by_server = client.list_iscsi_target_portals_by_server()
 
         # Group pools by their owning server. Pool ID format is
         # "{ServerId}:{pool-guid}" — the ServerId is the leading prefix and
@@ -112,6 +113,25 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
                         suggested = dict(configuration)
                         suggested["first-pool"] = p_a.get("Id", "")
                         suggested["second-pool"] = p_b.get("Id", "")
+                        # Suggested iscsi-portals: one portal per server (simplest
+                        # HA). The operator can still override with extra portals
+                        # for multi-NIC / additional path redundancy — the full
+                        # per-server portal list is exposed in extra_info below.
+                        portals_a = portals_by_server.get(srv_a) or []
+                        portals_b = portals_by_server.get(srv_b) or []
+                        if portals_a and portals_b:
+                            suggested["iscsi-portals"] = "{},{}".format(
+                                portals_a[0], portals_b[0])
+                        extra = {
+                            "first-pool-name":  p_a.get("Alias") or p_a.get("Caption") or "",
+                            "first-server-id":  srv_a,
+                            "second-pool-name": p_b.get("Alias") or p_b.get("Caption") or "",
+                            "second-server-id": srv_b,
+                        }
+                        if portals_a:
+                            extra["iscsi-portals-first-server-all"] = ",".join(portals_a)
+                        if portals_b:
+                            extra["iscsi-portals-second-server-all"] = ",".join(portals_b)
                         # NOTE: omit the `sr` key entirely (don't set to None).
                         # The SMAPIv5 API type-checker on dom0 treats
                         # `'sr' in entry` as "key present" and then unconditionally
@@ -122,12 +142,7 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
                         results.append({
                             "configuration": suggested,
                             "complete": False,
-                            "extra_info": {
-                                "first-pool-name":  p_a.get("Alias") or p_a.get("Caption") or "",
-                                "first-server-id":  srv_a,
-                                "second-pool-name": p_b.get("Alias") or p_b.get("Caption") or "",
-                                "second-server-id": srv_b,
-                            },
+                            "extra_info": extra,
                         })
         log.info("{}: SR.probe surfaced {} candidate pool pair(s) across {} server(s)".format(
             dbg, len(results), len(servers)))

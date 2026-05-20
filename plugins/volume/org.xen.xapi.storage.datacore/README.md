@@ -107,13 +107,17 @@ xe sr-probe-ext type=datacore \
 ```
 
 Returns one numbered "Configuration N" per valid cross-server pool pair.
-Each entry already has `first-pool` and `second-pool` filled in with the
-right `{ServerId}:{pool-guid}` strings; the `extra information` block
-shows the human-readable pool and server names so you can pick the right
-pair when more than one is available. Copy the chosen `first-pool` /
-`second-pool` values into the `xe sr-create` command above, add
-`iscsi-portals` and `host-id` (the probe doesn't need those — they're
-only needed at SR.create time), and you're done.
+Each entry already has `first-pool`, `second-pool`, and a suggested
+`iscsi-portals` (one target portal per server — simplest HA) filled in.
+The `extra information` block shows:
+
+- human-readable pool / server names so you can pick the right pair
+- the full set of iSCSI portals available on each server
+  (`iscsi-portals-first-server-all` / `iscsi-portals-second-server-all`),
+  in case you want more paths than the one-per-server default
+
+Copy the chosen Configuration N into `xe sr-create`, add `host-id`
+(only needed at SR.create time, not for probe), and you're done.
 
 Plain `xe sr-probe` (no `-ext`) returns the same data but XAPI's XML
 formatter only renders entries that represent *existing* SRs, so for

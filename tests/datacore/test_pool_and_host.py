@@ -115,3 +115,93 @@ def test_find_host_id_by_iqn_handles_none_response():
 
     assert datacoreapi.DataCoreClient.find_host_id_by_iqn(
         NoneClient(), "iqn.x") is None
+
+
+# -------- list_iscsi_target_portals_by_server --------
+
+def test_list_target_portals_groups_by_server():
+    """One target port per server, each with one portal IP."""
+    c = FakePortsClient([
+        {
+            "PortName": "iqn.2000-08.com.datacore:srv-a-1",
+            "HostId": "SRV-A",
+            "IScsiPortStateInfo": {
+                "PortalsState": [{"Address": {"Address": "10.0.0.1"}}],
+            },
+        },
+        {
+            "PortName": "iqn.2000-08.com.datacore:srv-b-1",
+            "HostId": "SRV-B",
+            "IScsiPortStateInfo": {
+                "PortalsState": [{"Address": {"Address": "10.0.0.2"}}],
+            },
+        },
+    ])
+    portals = datacoreapi.DataCoreClient.list_iscsi_target_portals_by_server(c)
+    assert portals == {"SRV-A": ["10.0.0.1"], "SRV-B": ["10.0.0.2"]}
+
+
+def test_list_target_portals_skips_non_iqn_ports():
+    """FC port (no iqn. prefix) must NOT be misclassified as iSCSI target."""
+    c = FakePortsClient([
+        {
+            "PortName": "20-02-44-9F-7F-A1-77-F9",  # FC WWN, not IQN
+            "HostId": "SRV-A",
+            "IScsiPortStateInfo": {
+                "PortalsState": [{"Address": {"Address": "10.0.0.1"}}],
+            },
+        },
+    ])
+    portals = datacoreapi.DataCoreClient.list_iscsi_target_portals_by_server(c)
+    assert portals == {}
+
+
+def test_list_target_portals_skips_initiator_ports():
+    """Initiator ports don't have PortalsState entries (they connect outward,
+    not listen). Filtering on Address presence skips them automatically —
+    no need for fragile RoleCapability/PortMode magic-number checks."""
+    c = FakePortsClient([
+        {
+            "PortName": "iqn.1991-05.com.microsoft:somehost",  # initiator
+            "HostId": "SRV-A",
+            # No IScsiPortStateInfo OR empty PortalsState
+        },
+        {
+            "PortName": "iqn.2000-08.com.datacore:srv-a-1",  # target
+            "HostId": "SRV-A",
+            "IScsiPortStateInfo": {
+                "PortalsState": [{"Address": {"Address": "10.0.0.1"}}],
+            },
+        },
+    ])
+    portals = datacoreapi.DataCoreClient.list_iscsi_target_portals_by_server(c)
+    assert portals == {"SRV-A": ["10.0.0.1"]}
+
+
+def test_list_target_portals_accumulates_multi_nic_per_server():
+    """Two iSCSI target ports on the same server, different NICs: both IPs
+    should land in the same server's list, order preserved."""
+    c = FakePortsClient([
+        {
+            "PortName": "iqn.2000-08.com.datacore:srv-a-1",
+            "HostId": "SRV-A",
+            "IScsiPortStateInfo": {
+                "PortalsState": [{"Address": {"Address": "10.0.0.1"}}],
+            },
+        },
+        {
+            "PortName": "iqn.2000-08.com.datacore:srv-a-2",
+            "HostId": "SRV-A",
+            "IScsiPortStateInfo": {
+                "PortalsState": [{"Address": {"Address": "10.0.0.11"}}],
+            },
+        },
+    ])
+    portals = datacoreapi.DataCoreClient.list_iscsi_target_portals_by_server(c)
+    assert portals == {"SRV-A": ["10.0.0.1", "10.0.0.11"]}
+
+
+def test_list_target_portals_empty_when_no_ports():
+    """Defensive: empty /ports."""
+    assert datacoreapi.DataCoreClient.list_iscsi_target_portals_by_server(
+        FakePortsClient([])) == {}
