@@ -40,6 +40,19 @@ class Implementation(xapi.storage.api.v5.volume.Volume_skeleton):
         cfg = sr_mod._read_stash(sr)
         client = datacoreapi.DataCoreClient.from_sr_config(cfg)
 
+        # DataCore rejects vDisks smaller than the pool's ChunkSize
+        # (typically 128 MiB) with HTTP 400 "the disk size provided is
+        # less than the storage allocation unit size". XAPI happily
+        # asks for sub-chunk VDIs (XO CloudConfigDrive is 10 MiB), so
+        # we round up to the pool boundary silently. Same shape as how
+        # LVM-backed SRs round to PE boundaries.
+        chunk = client.pool_chunk_size_bytes(cfg["first-pool"])
+        aligned = client.align_size_to_chunk(size, chunk)
+        if aligned != size:
+            log.info("{}: Volume.create: rounded size {} -> {} (pool chunk={})".format(
+                dbg, size, aligned, chunk))
+            size = aligned
+
         vdi_uuid = str(uuidlib.uuid4())
         vdisk_name = "{}{}".format(datacoreapi.vdisk_prefix(sr), vdi_uuid)
         meta = datacoreapi.encode_metadata(

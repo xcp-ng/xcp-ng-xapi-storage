@@ -71,13 +71,20 @@ def _wait_for_device(wwn, dbg):
 def _rescan_iscsi():
     subprocess.run(["iscsiadm", "-m", "session", "--rescan"],
                    check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    # Wait for udev to process the change events the rescan emits.
-    # Without this, /dev/disk/by-id/scsi-3<wwn> can be missing for
-    # several seconds — sometimes longer than _wait_for_device's 30 s
-    # window — even when the sd entry has its wwid attribute populated
-    # in sysfs. Bounded 30 s timeout; settle returns 0 once the queue
-    # drains, non-zero on timeout (which we ignore — _wait_for_device
-    # will then surface a clear "device did not appear" error).
+    # When iSCSI Serve maps a NEW LUN into a kernel sd slot that previously
+    # held an Unserved LUN, the kernel keeps the sd entry and just updates
+    # the wwid sysfs attribute — it does NOT fire an "add" or "change"
+    # uevent. udev's persistent-storage rules therefore never re-evaluate,
+    # and /dev/disk/by-id/scsi-3<wwn> stays pointed at the previous wwn
+    # (the one from the Unserved LUN). _wait_for_device then times out
+    # at 30 s on a symlink that never gets regenerated.
+    #
+    # Forcing a change-action trigger on all block devices makes udev
+    # re-run its rules with the current wwid attribute and update the
+    # by-id symlinks to match. settle drains the resulting queue.
+    subprocess.run(["udevadm", "trigger", "--action=change",
+                    "--subsystem-match=block"],
+                   check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     subprocess.run(["udevadm", "settle", "--timeout=30"],
                    check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 

@@ -38,6 +38,17 @@ class Implementation(xapi.storage.api.v5.plugin.Plugin_skeleton):
                 "VDI_CLONE",
                 "VDI_UPDATE",
             ],
+            # NOTE: VDI_MIRROR_IN is intentionally NOT advertised yet.
+            # `xe vdi-pool-migrate` (live storage XenMotion) needs the
+            # destination SR's plugin to expose an NBD endpoint
+            # (/services/SM/nbd/MIR.../...) so XAPI's mover can stream
+            # mirrored writes into the in-flight VDI. SMAPIv1 plugins
+            # implement this via SM; an SMAPIv3 equivalent for our raw-
+            # block-device datapath is unimplemented. Offline migration
+            # via `xe vdi-copy` works in both directions today and is
+            # the supported path. Advertising VDI_MIRROR_IN without the
+            # NBD service makes XAPI start the migration then 500 on
+            # the PUT, which is worse than a clean "not supported".
             "configuration": {
                 "rest-endpoint": "DataCore REST base URL, e.g. https://datacore.example.com",
                 "username": "DataCore admin username (Windows account on the SANsymphony server)",

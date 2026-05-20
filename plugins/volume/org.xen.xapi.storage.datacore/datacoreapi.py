@@ -204,6 +204,26 @@ class DataCoreClient:
     def list_pools(self):
         return self.get("/pools") or []
 
+    def pool_chunk_size_bytes(self, pool_id):
+        """Return the pool's allocation unit (ChunkSize) in bytes.
+
+        DataCore refuses to create vDisks below this size with HTTP 400
+        "the disk size provided is less than the storage allocation unit
+        size", which we hit on VDIs like XO's 10 MiB CloudConfigDrive.
+        Returns 0 if the pool isn't found — caller decides how to handle
+        the missing-pool case.
+        """
+        for p in self.list_pools():
+            if p.get("Id") == pool_id:
+                return int((p.get("ChunkSize") or {}).get("Value", 0))
+        return 0
+
+    def align_size_to_chunk(self, size, chunk):
+        """Round `size` up to the next multiple of `chunk`. Pure helper."""
+        if chunk <= 0:
+            return size
+        return ((int(size) + chunk - 1) // chunk) * chunk
+
     def list_pool_members(self):
         """Flat list of physical-disk members across all pools.
 

@@ -157,6 +157,15 @@ DataCore (where pools aren't SRs) the XML is empty. Use `sr-probe-ext`.
   the plugin polls until `DiskStatus=0` before returning so an
   immediately-following snapshot or attach doesn't race. Bounded
   timeout: 60 s.
+- **Pool chunk-size minimum.** DataCore refuses to create vDisks below
+  one pool ChunkSize (typically 128 MiB). `Volume.create` rounds the
+  requested size up to the next chunk boundary silently — same pattern
+  as LVM-backed SRs rounding to PE boundaries.
+- **`xe vdi-pool-migrate` (live storage migration) not supported.** The
+  XAPI mover uses an NBD mirror endpoint (`/services/SM/nbd/MIR.../...`)
+  on the destination SR; that service is unimplemented in our SMAPIv3
+  plugin for raw-block-device datapaths. Offline migration via
+  `xe vdi-copy` works in both directions and is the supported path.
 
 ## Troubleshooting
 
