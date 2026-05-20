@@ -173,15 +173,32 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         log.debug("{}: SR.stat sr={}".format(dbg, sr))
         cfg = _read_stash(sr)
         client = datacoreapi.DataCoreClient.from_sr_config(cfg)
-        # /pools doesn't return capacity in the bare list response.
-        # For the spike we report 0 — a follow-up will probe a richer per-pool endpoint.
-        client.list_pools()
+
+        # Mirrored capacity is bounded by the smaller of the two legs (every
+        # vDisk consumes its full Size on both pools, so the slower-growing
+        # pool gates how much we can host). Allocated = our SR's vDisks.
+        # If either lookup fails, report 0/0 — better than raising on a
+        # purely-informational call.
+        total = 0
+        free = 0
+        try:
+            cap_a = client.pool_capacity_bytes(cfg["first-pool"])
+            cap_b = client.pool_capacity_bytes(cfg["second-pool"])
+            total = min(cap_a, cap_b)
+            allocated = client.sr_allocated_bytes(sr)
+            free = max(0, total - allocated)
+            log.debug("{}: SR.stat total={} alloc={} free={}".format(
+                dbg, total, allocated, free))
+        except Exception as e:
+            log.warning("{}: SR.stat: capacity lookup failed, reporting 0: {}".format(
+                dbg, e))
+
         return {
             "sr": sr,
             "name": cfg.get("sr-name", "DataCore SR"),
             "description": cfg.get("sr-description", "") or "",
-            "total_space": 0,
-            "free_space": 0,
+            "total_space": total,
+            "free_space": free,
             "uuid": sr,
             "datasources": [],
             "clustered": True,

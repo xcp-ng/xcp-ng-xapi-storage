@@ -204,8 +204,59 @@ class DataCoreClient:
     def list_pools(self):
         return self.get("/pools") or []
 
+    def list_pool_members(self):
+        """Flat list of physical-disk members across all pools.
+
+        Each item carries `DiskPoolId` and `Size.Value` (bytes). The bare
+        `/pools` listing has no capacity field, and `/pools/{id}` 404s,
+        so summing members is the documented path to pool capacity.
+        """
+        return self.get("/poolmembers") or []
+
+    def pool_capacity_bytes(self, pool_id):
+        """Sum the Size of all members of a pool. Returns 0 on lookup failure
+        or empty pool (caller decides how to interpret 0 — never raises)."""
+        total = 0
+        try:
+            members = self.list_pool_members()
+        except DataCoreError:
+            return 0
+        for m in members:
+            if m.get("DiskPoolId") != pool_id:
+                continue
+            sz = m.get("Size") or {}
+            try:
+                total += int(sz.get("Value", 0))
+            except (TypeError, ValueError, AttributeError):
+                pass
+        return total
+
     def list_virtualdisks(self):
         return self.get("/virtualdisks") or []
+
+    def sr_allocated_bytes(self, sr_uuid):
+        """Sum the logical Size of every vDisk owned by this SR (Alias-prefix
+        match). For mirrored vDisks, Size is the logical (single-leg-equivalent)
+        bytes, which is what we want for "allocated against mirrored capacity".
+
+        Caveat: only counts our own SR's vDisks. If the same DataCore pools
+        are shared with other XCP-ng SRs or other tenants, their allocations
+        are invisible to us and free_space ends up optimistic. There is no
+        documented per-pool "allocated bytes" REST endpoint; /performance/{pool}
+        returns a capacity-shaped record but its fields read 0 on lab kit
+        without DataCore's performance collection enabled.
+        """
+        prefix = vdisk_prefix(sr_uuid)
+        total = 0
+        for d in self.list_virtualdisks():
+            if not d.get("Alias", "").startswith(prefix):
+                continue
+            sz = d.get("Size") or {}
+            try:
+                total += int(sz.get("Value", 0))
+            except (TypeError, ValueError, AttributeError):
+                pass
+        return total
 
     def find_vdisk_by_id(self, vdisk_id):
         for d in self.list_virtualdisks():
