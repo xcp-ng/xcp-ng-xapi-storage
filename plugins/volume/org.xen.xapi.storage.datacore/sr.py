@@ -173,12 +173,17 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
         datacoreapi.clear_password_cache(sr_uuid)
         client = datacoreapi.DataCoreClient.from_sr_config(configuration)
         client.list_pools()
-        _write_stash(sr_uuid, configuration)
 
-        portals_raw = configuration.get("iscsi-portals", "")
+        # Resolve host-id (config-provided or via IQN lookup) BEFORE writing
+        # the stash, so the stash always carries it. Datapath.attach reads
+        # host-id from the stash and doesn't do its own auto-resolution —
+        # without this, a Datapath.attach right after an SR.attach that
+        # relied on auto-resolution would fail with "missing host-id".
+        cfg = dict(configuration)
+        portals_raw = cfg.get("iscsi-portals", "")
         if portals_raw:
             iqn = _host_iqn()
-            host_id = configuration.get("host-id")
+            host_id = cfg.get("host-id")
             if not host_id:
                 # Re-attach path after a successful first-time setup: the
                 # IQN is already registered against a DataCore host, so we
@@ -198,6 +203,7 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
                         "GUI / PowerShell first.".format(iqn))
                 log.info("{}: SR.attach resolved DataCore host-id={} via IQN {}".format(
                     dbg, host_id, iqn))
+                cfg["host-id"] = host_id  # persist into the runtime stash
             else:
                 log.debug("{}: SR.attach using configured host-id={}".format(dbg, host_id))
             client.register_port_idempotent(host_id, iqn)
@@ -205,6 +211,7 @@ class Implementation(xapi.storage.api.v5.volume.SR_skeleton):
             _iscsi_setup(dbg, portals, iqn)
         else:
             log.debug("{}: SR.attach skipping iscsi setup (no iscsi-portals)".format(dbg))
+        _write_stash(sr_uuid, cfg)
         return sr_uuid
 
     def detach(self, dbg, sr):

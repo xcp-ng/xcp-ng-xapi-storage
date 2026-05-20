@@ -74,6 +74,20 @@ class Implementation(xapi.storage.api.v5.volume.Volume_skeleton):
         if d is None:
             log.debug("{}: Volume.destroy: VDI {} not found, treating as already destroyed".format(dbg, key))
             return
+        # Best-effort Unserve before delete. DataCore refuses DELETE on a
+        # vDisk that is still Served to any host ("is served to one or
+        # multiple hosts and cannot be deleted"). The usual lifecycle has
+        # Datapath.detach call Unserve first, but XAPI's rollback path for
+        # a failed Datapath.attach skips Datapath.detach and goes straight
+        # to Volume.destroy. Calling Unserve here (and ignoring its result)
+        # makes Volume.destroy safe to invoke at any point.
+        host_id = cfg.get("host-id")
+        if host_id and d.get("IsServed"):
+            try:
+                client.unserve_vdisk(d["Id"], host_id)
+            except datacoreapi.DataCoreError as e:
+                log.debug("{}: Volume.destroy: Unserve failed (continuing): {}".format(
+                    dbg, e))
         client.delete_vdisk(d["Id"])
         log.info("{}: Volume.destroy: deleted vdisk={} (VDI {})".format(dbg, d["Id"], key))
 

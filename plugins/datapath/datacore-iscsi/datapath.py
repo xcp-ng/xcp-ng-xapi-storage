@@ -71,6 +71,15 @@ def _wait_for_device(wwn, dbg):
 def _rescan_iscsi():
     subprocess.run(["iscsiadm", "-m", "session", "--rescan"],
                    check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    # Wait for udev to process the change events the rescan emits.
+    # Without this, /dev/disk/by-id/scsi-3<wwn> can be missing for
+    # several seconds — sometimes longer than _wait_for_device's 30 s
+    # window — even when the sd entry has its wwid attribute populated
+    # in sysfs. Bounded 30 s timeout; settle returns 0 once the queue
+    # drains, non-zero on timeout (which we ignore — _wait_for_device
+    # will then surface a clear "device did not appear" error).
+    subprocess.run(["udevadm", "settle", "--timeout=30"],
+                   check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 
 def _iter_sd_paths_for_wwn(wwn):
