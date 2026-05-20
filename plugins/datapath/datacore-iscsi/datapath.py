@@ -103,6 +103,55 @@ def _evict_scsi_paths_for_wwn(wwn, dbg):
         log.error("{}: scsi evict failed: {}".format(dbg, e))
 
 
+def _read_sysfs(path):
+    """Read a sysfs file, trimming trailing whitespace. Returns '' on any error."""
+    try:
+        with open(path) as f:
+            return f.read().rstrip()
+    except (FileNotFoundError, IOError):
+        return ""
+
+
+def _evict_orphan_datacore_sds(dbg):
+    """Evict /dev/sd* entries that look like DataCore LUNs but have no wwid.
+
+    The in-band detach path (`_evict_scsi_paths_for_wwn`) catches stale paths
+    when Datapath.detach is called cleanly. But out-of-band sequences —
+    notably VM hard-shutdown then restart, where XAPI doesn't reliably call
+    Datapath.detach before the next Datapath.attach — leave sd entries
+    behind. After Unserve+Serve+rescan the kernel keeps the existing sd
+    entry but its INQUIRY data isn't refreshed, so `/sys/block/sdX/device/wwid`
+    is empty and udev never creates `/dev/disk/by-id/scsi-3<wwn>`. The
+    poll loop in Datapath.attach then times out at 30 s.
+
+    Healthy active paths always have wwid populated (that's what udev keyed
+    off to build the by-id link in the first place), so filtering on
+    "DataCore Virtual Disk AND empty wwid" reliably hits only orphans. We
+    do this BEFORE the next Serve+rescan so the rescan recreates fresh sd
+    entries with the wwid attribute populated correctly.
+    """
+    try:
+        names = sorted(os.listdir("/sys/block"))
+    except OSError:
+        return
+    for name in names:
+        if not name.startswith("sd"):
+            continue
+        dev_dir = "/sys/block/{}/device".format(name)
+        if (_read_sysfs(dev_dir + "/vendor") != "DataCore"
+                or _read_sysfs(dev_dir + "/model") != "Virtual Disk"):
+            continue
+        if _read_sysfs(dev_dir + "/wwid"):
+            continue  # healthy active path; leave it alone
+        log.info("{}: evict orphan DataCore sd /dev/{} (empty wwid)".format(dbg, name))
+        delete = dev_dir + "/delete"
+        try:
+            with open(delete, "w") as f:
+                f.write("1")
+        except IOError as e:
+            log.error("{}: failed to evict /dev/{}: {}".format(dbg, name, e))
+
+
 def _multipath_active():
     """True if multipathd is running. Drives whether attach uses /dev/mapper."""
     r = subprocess.run(["systemctl", "is-active", "multipathd"],
@@ -207,6 +256,13 @@ class Implementation(xapi.storage.api.v5.datapath.Datapath_skeleton):
         if d is None:
             raise Exception("Datapath.attach: vdisk {} not found on array".format(vdisk_id))
         wwn = d["ScsiDeviceIdString"].lower()
+
+        # Scrub orphan sd entries from prior out-of-band detach sequences
+        # (e.g. VM hard-shutdown then restart) before re-Serving. Otherwise
+        # the rescan keeps the wwid-less orphans and the by-id symlink never
+        # materialises. Safe to run unconditionally — only touches DataCore
+        # sd's whose wwid is empty.
+        _evict_orphan_datacore_sds(dbg)
 
         client.serve_vdisk(vdisk_id, host_id)
         _rescan_iscsi()

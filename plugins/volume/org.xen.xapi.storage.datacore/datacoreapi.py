@@ -225,8 +225,20 @@ class DataCoreClient:
                         {"Size": int(new_size)})
 
     def serve_vdisk(self, vdisk_id, host_id):
-        return self.post("/virtualdisks/{}".format(vdisk_id),
-                         {"Operation": "Serve", "Host": host_id})
+        """Serve the vDisk to `host_id`. Idempotent — re-Serving a vDisk
+        that is already mapped to the same host returns HTTP 400
+        "A path with the chosen initiator and target ports already exists",
+        which we treat as success. This matters after VM-shutdown-then-
+        restart cycles where Datapath.detach was not called: the LUN is
+        still mapped on the array, and the next Datapath.attach must not
+        fail just because the array agrees the mapping already exists."""
+        try:
+            return self.post("/virtualdisks/{}".format(vdisk_id),
+                             {"Operation": "Serve", "Host": host_id})
+        except DataCoreError as e:
+            if "already exists" in str(e).lower():
+                return None
+            raise
 
     def unserve_vdisk(self, vdisk_id, host_id):
         return self.post("/virtualdisks/{}".format(vdisk_id),
