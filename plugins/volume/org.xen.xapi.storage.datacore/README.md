@@ -59,7 +59,7 @@ Files installed:
 effect without rebooting. A future revision will add a post-install hook;
 for now do it manually after the first install.
 
-## First-time SR setup
+## SR setup
 
 You need to know a few DataCore-side identifiers before `SR.create`:
 
@@ -70,10 +70,12 @@ You need to know a few DataCore-side identifiers before `SR.create`:
   via `xe sr-probe-ext` (recommended — see "Discovering pool IDs"
   below), `GET /pools`, or the SANsymphony GUI / `Get-DcsPool`.
 - **iscsi-portals** — comma-separated DataCore Front-End port IPs.
-- **host-id** *(optional after first attach)* — the DataCore host
-  object ID for this XCP-ng host. Required for the first SR.attach
-  ever; subsequent attaches resolve via initiator-IQN lookup
-  (`GET /ports`) and the key can be removed.
+
+The DataCore-side host object must exist for the XCP-ng host before
+the first `SR.attach`. The XCP-ng initiator IQN can either be
+pre-registered against that host (SANsymphony GUI / `Register-DcsPort`
+PowerShell cmdlet), or registered automatically by the plugin on the
+first attach — see the `host-id` bootstrap path below.
 
 ```
 xe sr-create type=datacore name-label="my-datacore" shared=false \
@@ -82,20 +84,30 @@ xe sr-create type=datacore name-label="my-datacore" shared=false \
     device-config:password=<plaintext> \
     device-config:first-pool="<ServerA-Id>:{<poolA-guid>}" \
     device-config:second-pool="<ServerB-Id>:{<poolB-guid>}" \
-    device-config:iscsi-portals=192.168.1.87,192.168.1.88 \
-    device-config:host-id=<datacore-host-object-id>
+    device-config:iscsi-portals=192.168.1.87,192.168.1.88
 ```
 
 XAPI silently converts the `password` key to a `password_secret` UUID
 behind the scenes; the plaintext is never persisted in `device-config`.
 
-If the DataCore host object doesn't yet exist for this XCP-ng host,
-create it in the SANsymphony GUI first (Hosts → Add Host). The plugin
-will register the XCP-ng initiator IQN against it on the first
-`SR.attach` via `RegisterPort`.
+### When you need `host-id` too — and when you don't
 
-After the first successful attach the `host-id` device-config key can
-be removed — `SR.attach` resolves it automatically from the IQN.
+`SR.attach` always resolves the DataCore host-id automatically from the
+XCP-ng initiator IQN by scanning `GET /ports`. That works as long as
+the IQN is already registered against some DataCore host object.
+Therefore:
+
+- **IQN already registered** (re-attaching an SR you used before, or
+  spinning up an SR on an XCP-ng host whose IQN was pre-registered in
+  the DataCore GUI / PowerShell): omit `host-id`. The plugin finds
+  the right host on its own.
+- **IQN not yet registered** (brand-new XCP-ng host the DataCore admin
+  hasn't yet linked an IQN to): add
+  `device-config:host-id=<datacore-host-object-id>` so the plugin
+  knows *which* DataCore host object to call `RegisterPort` against
+  during the first `SR.attach`. After that first attach succeeds the
+  IQN is registered and the key can be removed (the SR will keep
+  working via auto-resolution from then on).
 
 ## Discovering pool IDs
 
