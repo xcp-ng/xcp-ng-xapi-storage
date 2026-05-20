@@ -62,7 +62,8 @@ class Implementation(xapi.storage.api.v5.volume.Volume_skeleton):
         # Block until DiskStatus=Online so an immediately-following snapshot
         # or clone doesn't hit DataCore's "not up-to-date" 400.
         d = client.wait_for_vdisk_online(d["Id"])
-        log.debug("{}: Volume.create Id={} ready".format(dbg, d["Id"]))
+        log.info("{}: Volume.create: vdisk={} VDI={} size={} ready".format(
+            dbg, d["Id"], vdi_uuid, size))
         return datacoreapi.vdisk_to_vdi_info(d, sr)
 
     def destroy(self, dbg, sr, key):
@@ -74,6 +75,7 @@ class Implementation(xapi.storage.api.v5.volume.Volume_skeleton):
             log.debug("{}: Volume.destroy: VDI {} not found, treating as already destroyed".format(dbg, key))
             return
         client.delete_vdisk(d["Id"])
+        log.info("{}: Volume.destroy: deleted vdisk={} (VDI {})".format(dbg, d["Id"], key))
 
     def resize(self, dbg, sr, key, new_size):
         log.debug("{}: Volume.resize sr={} key={} new_size={}".format(dbg, sr, key, new_size))
@@ -91,6 +93,8 @@ class Implementation(xapi.storage.api.v5.volume.Volume_skeleton):
             log.debug("{}: Volume.resize: already at {} bytes, no-op".format(dbg, current))
             return
         client.resize_vdisk(d["Id"], new_size)
+        log.info("{}: Volume.resize: vdisk={} {} -> {} bytes".format(
+            dbg, d["Id"], current, new_size))
 
     def stat(self, dbg, sr, key):
         log.debug("{}: Volume.stat sr={} key={}".format(dbg, sr, key))

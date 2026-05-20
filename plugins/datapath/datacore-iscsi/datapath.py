@@ -96,7 +96,7 @@ def _evict_scsi_paths_for_wwn(wwn, dbg):
         for name in _iter_sd_paths_for_wwn(wwn):
             sysfile = "/sys/block/{}/device/delete".format(name)
             if os.path.exists(sysfile):
-                log.debug("{}: evict /dev/{}".format(dbg, name))
+                log.info("{}: evict /dev/{} (wwn={})".format(dbg, name, wwn))
                 with open(sysfile, "w") as f:
                     f.write("1")
     except Exception as e:
@@ -174,7 +174,7 @@ def _register_with_multipath(wwn, dbg):
     # WWIDs get a map created.
     subprocess.run(["multipath"],
                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
-    log.debug("{}: multipath registered {}".format(dbg, mpath_wwid))
+    log.info("{}: multipath registered {}".format(dbg, mpath_wwid))
 
 
 def _wait_for_mpath(wwn, dbg):
