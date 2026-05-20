@@ -24,6 +24,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 API_PATH = "/RestService/rest.svc/1.0"
 VOLUME_TYPE_MIRRORED = 2
+SNAPSHOT_TYPE_DIFFERENTIAL = 1  # instant, COW on the array, source-dependent
 
 
 class DataCoreError(Exception):
@@ -159,6 +160,47 @@ class DataCoreClient:
     def delete_vdisk(self, vdisk_id):
         self.delete("/virtualdisks/{}".format(vdisk_id))
 
+    def create_differential_snapshot(self, source_vdisk_id, name, destination_pool,
+                                     description=""):
+        """POST /snapshots with Type=1 (Differential).
+
+        Per DataCore docs: instant (State=2 immediately), COW on the array,
+        source-dependent. The destination vDisk is single-leg (Type=0) on the
+        chosen pool — DataCore snapshots cannot be mirrored ("The snapshot can
+        only exist on one server.", Snapshot Operations docs).
+
+        Description does NOT propagate from source; the caller must PUT
+        metadata onto the new vDisk afterward.
+
+        Returns the new vDisk record (looked up via the returned snapshot's
+        DestinationLogicalDisk / by Name fallback).
+        """
+        resp = self.post("/snapshots", {
+            "VirtualDisk":     source_vdisk_id,
+            "Name":            name,
+            "Type":            SNAPSHOT_TYPE_DIFFERENTIAL,
+            "DestinationPool": destination_pool,
+        })
+        snap = resp[0] if isinstance(resp, list) and resp else resp
+        if not isinstance(snap, dict):
+            raise DataCoreError("Unexpected /snapshots response: {!r}".format(resp))
+
+        # Resolve the destination vDisk. The snapshot lineage object's exact
+        # shape isn't documented; try the commonly-seen fields first, then
+        # fall back to a Name lookup against /virtualdisks.
+        dest_id = (snap.get("DestinationVirtualDisk")
+                   or snap.get("DestinationVirtualDiskId")
+                   or snap.get("Destination"))
+        if dest_id:
+            d = self.find_vdisk_by_id(dest_id)
+            if d is not None:
+                return d
+        for d in self.list_virtualdisks():
+            if d.get("Alias") == name:
+                return d
+        raise DataCoreError(
+            "Snapshot created but destination vDisk not found (name={!r})".format(name))
+
 
 # -------- VDI <-> DataCore vDisk translation helpers --------
 
@@ -180,21 +222,70 @@ def parse_metadata(description):
         return {}
 
 
-def encode_metadata(vdi_uuid, sr_uuid, vdi_name, sharable, read_write, custom=None,
-                    max_len=1024):
+def encode_metadata(vdi_uuid, sr_uuid, vdi_name, sharable, read_write,
+                    description="", custom=None, is_snapshot=False,
+                    parent_vdi_uuid=None, max_len=1024):
     blob = {
         "xcp-ng:vdi-uuid": vdi_uuid,
         "xcp-ng:sr-uuid": sr_uuid,
         "xcp-ng:vdi-name": (vdi_name or "")[:200],
+        "xcp-ng:vdi-description": (description or "")[:200],
         "xcp-ng:sharable": bool(sharable),
         "xcp-ng:read-write": bool(read_write),
     }
+    if is_snapshot:
+        blob["xcp-ng:is-snapshot"] = True
+    if parent_vdi_uuid:
+        blob["xcp-ng:parent-vdi-uuid"] = parent_vdi_uuid
     for k, v in (custom or {}).items():
         blob["xcp-ng:custom:{}".format(k)] = v
     out = json.dumps(blob, separators=(",", ":"))
     if len(out) > max_len:
         raise DataCoreError("Metadata blob exceeds {} chars".format(max_len))
     return out
+
+
+def _server_id_from_pool(pool_id):
+    """Pool ID format is `{ServerId}:{pool-guid}` — extract the leading server id."""
+    return pool_id.split(":", 1)[0] if pool_id else ""
+
+
+def _vdisk_preferred_server_id(d):
+    """Best-effort extraction of the source vDisk's preferred server.
+
+    The exact JSON shape isn't documented; this checks the commonly-seen
+    field names. Returns "" if it can't be determined.
+    """
+    for key in ("PreferredServer", "PreferredServerId", "FirstHostId"):
+        v = d.get(key)
+        if isinstance(v, dict):
+            v = v.get("Id") or v.get("Caption")
+        if isinstance(v, str) and v:
+            return v
+    return ""
+
+
+def pick_snapshot_pool(cfg, source_vdisk):
+    """Pick the non-preferred-side pool for a snapshot, per DataCore best practice.
+
+    Quoting Snapshot Operations docs: "Where possible create snapshots on the
+    non-preferred side of a mirrored Virtual Disk." That keeps snapshot
+    capacity balanced across both servers instead of piling everything on the
+    primary. DataCore snapshots are always single-pool ("The snapshot can only
+    exist on one server"); HA of the snapshot itself is out of scope at this
+    API level (see plugin README).
+
+    If we can't determine the source's preferred server, default to
+    second-pool (still avoids the all-on-first-pool failure mode).
+    """
+    first = cfg["first-pool"]
+    second = cfg["second-pool"]
+    preferred = _vdisk_preferred_server_id(source_vdisk)
+    if preferred and preferred == _server_id_from_pool(first):
+        return second
+    if preferred and preferred == _server_id_from_pool(second):
+        return first
+    return second
 
 
 def vdisk_to_vdi_info(d, sr_uuid):
@@ -213,7 +304,7 @@ def vdisk_to_vdi_info(d, sr_uuid):
         "key": vdi_uuid,
         "uuid": vdi_uuid,
         "name": meta.get("xcp-ng:vdi-name", alias),
-        "description": "",
+        "description": meta.get("xcp-ng:vdi-description", ""),
         "read_write": bool(meta.get("xcp-ng:read-write", True)),
         "virtual_size": d["Size"]["Value"],
         "physical_utilisation": d["Size"]["Value"],

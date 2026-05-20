@@ -12,6 +12,28 @@ import datacoreapi
 import sr as sr_mod  # for _read_stash
 
 
+def _reencode_metadata(d, **overrides):
+    """Rebuild a vDisk's xcp-ng JSON metadata blob with the given fields overridden.
+
+    Reads the current Description, parses xcp-ng:* keys, merges overrides
+    (None values delete keys), and returns the new JSON string suitable for
+    `PUT /virtualdisks/{id}`. Preserves unknown keys so we don't lose state
+    written by a future plugin version.
+    """
+    meta = datacoreapi.parse_metadata(d.get("Description"))
+    for k, v in overrides.items():
+        if v is None:
+            meta.pop(k, None)
+        else:
+            meta[k] = v
+    import json
+    out = json.dumps(meta, separators=(",", ":"))
+    if len(out) > 1024:
+        raise datacoreapi.DataCoreError(
+            "Metadata blob exceeds 1024 chars after update")
+    return out
+
+
 class Implementation(xapi.storage.api.v5.volume.Volume_skeleton):
     def create(self, dbg, sr, name, description, size, sharable):
         log.debug("{}: Volume.create sr={} name={!r} size={}".format(dbg, sr, name, size))
@@ -24,6 +46,7 @@ class Implementation(xapi.storage.api.v5.volume.Volume_skeleton):
             vdi_uuid=vdi_uuid,
             sr_uuid=sr,
             vdi_name=name,
+            description=description,
             sharable=sharable,
             read_write=True,
         )
@@ -74,20 +97,89 @@ class Implementation(xapi.storage.api.v5.volume.Volume_skeleton):
             raise xapi.storage.api.v5.volume.Volume_does_not_exist(key)
         return datacoreapi.vdisk_to_vdi_info(d, sr)
 
+    def snapshot(self, dbg, sr, key):
+        return self._snapshot_or_clone(dbg, sr, key, is_snapshot=True)
+
+    def clone(self, dbg, sr, key):
+        return self._snapshot_or_clone(dbg, sr, key, is_snapshot=False)
+
+    def _snapshot_or_clone(self, dbg, sr, key, is_snapshot):
+        op = "snapshot" if is_snapshot else "clone"
+        log.debug("{}: Volume.{} sr={} key={}".format(dbg, op, sr, key))
+        cfg = sr_mod._read_stash(sr)
+        client = datacoreapi.DataCoreClient.from_sr_config(cfg)
+        src = datacoreapi.find_vdisk_by_vdi_uuid(client, sr, key)
+        if src is None:
+            raise xapi.storage.api.v5.volume.Volume_does_not_exist(key)
+
+        # DataCore Type=1 snapshots are always single-pool ("The snapshot can
+        # only exist on one server"). Per the docs' best practice, place the
+        # snapshot on the non-preferred side of the source's mirror so capacity
+        # balances across both servers. Single-server failure of the chosen
+        # pool will still lose the snapshot — that's a hard DataCore limit,
+        # documented as a HA gap in the plugin README.
+        dest_pool = datacoreapi.pick_snapshot_pool(cfg, src)
+
+        src_meta = datacoreapi.parse_metadata(src.get("Description"))
+        # Inherit source's display name unless it was empty.
+        src_name = src_meta.get("xcp-ng:vdi-name", "")
+        src_desc = src_meta.get("xcp-ng:vdi-description", "")
+
+        new_uuid = str(uuidlib.uuid4())
+        vdisk_name = "{}{}".format(datacoreapi.vdisk_prefix(sr), new_uuid)
+        log.info("{}: Volume.{} src={} dest_pool={} new_uuid={}".format(
+            dbg, op, src["Id"], dest_pool, new_uuid))
+
+        d = client.create_differential_snapshot(
+            source_vdisk_id=src["Id"],
+            name=vdisk_name,
+            destination_pool=dest_pool,
+        )
+
+        # Description does NOT propagate from source to snapshot — must PUT
+        # explicitly. Snapshots are returned read_write=False (XAPI semantic);
+        # clones are returned read_write=True. The DataCore array itself
+        # accepts writes on a Type=1 snapshot regardless.
+        meta = datacoreapi.encode_metadata(
+            vdi_uuid=new_uuid,
+            sr_uuid=sr,
+            vdi_name=src_name,
+            description=src_desc,
+            sharable=bool(src_meta.get("xcp-ng:sharable", False)),
+            read_write=(not is_snapshot),
+            is_snapshot=is_snapshot,
+            parent_vdi_uuid=key,
+        )
+        client.update_description(d["Id"], meta)
+        # Re-fetch so vdi_info reflects the new Description.
+        d = client.find_vdisk_by_id(d["Id"]) or d
+        d["Description"] = meta  # ensure parse_metadata sees the new blob
+        return datacoreapi.vdisk_to_vdi_info(d, sr)
+
     def set_description(self, dbg, sr, key, new_description):
-        # MVP: XAPI tracks name/description in its DB; we accept silently.
-        log.debug("{}: Volume.set_description (no-op in MVP) sr={} key={}".format(dbg, sr, key))
+        log.debug("{}: Volume.set_description sr={} key={}".format(dbg, sr, key))
+        self._update_metadata(sr, key, **{"xcp-ng:vdi-description": (new_description or "")[:200]})
 
     def set_name(self, dbg, sr, key, new_name):
-        log.debug("{}: Volume.set_name (no-op in MVP) sr={} key={}".format(dbg, sr, key))
+        log.debug("{}: Volume.set_name sr={} key={}".format(dbg, sr, key))
+        self._update_metadata(sr, key, **{"xcp-ng:vdi-name": (new_name or "")[:200]})
 
     def set(self, dbg, sr, key, k, v):
-        # Custom KV pair (xe vdi-param-set). MVP: accept and discard.
-        # Real impl would PUT a refreshed Description with xcp-ng:custom:{k}={v}.
-        log.debug("{}: Volume.set (no-op in MVP) sr={} key={} {}={}".format(dbg, sr, key, k, v))
+        log.debug("{}: Volume.set sr={} key={} {}={!r}".format(dbg, sr, key, k, v))
+        self._update_metadata(sr, key, **{"xcp-ng:custom:{}".format(k): v})
 
     def unset(self, dbg, sr, key, k):
-        log.debug("{}: Volume.unset (no-op in MVP) sr={} key={} k={}".format(dbg, sr, key, k))
+        log.debug("{}: Volume.unset sr={} key={} k={}".format(dbg, sr, key, k))
+        self._update_metadata(sr, key, **{"xcp-ng:custom:{}".format(k): None})
+
+    def _update_metadata(self, sr, key, **overrides):
+        cfg = sr_mod._read_stash(sr)
+        client = datacoreapi.DataCoreClient.from_sr_config(cfg)
+        d = datacoreapi.find_vdisk_by_vdi_uuid(client, sr, key)
+        if d is None:
+            raise xapi.storage.api.v5.volume.Volume_does_not_exist(key)
+        new_desc = _reencode_metadata(d, **overrides)
+        client.update_description(d["Id"], new_desc)
 
 
 if __name__ == "__main__":
@@ -102,6 +194,10 @@ if __name__ == "__main__":
         cmd.resize()
     elif base == "Volume.stat":
         cmd.stat()
+    elif base == "Volume.snapshot":
+        cmd.snapshot()
+    elif base == "Volume.clone":
+        cmd.clone()
     elif base == "Volume.set_description":
         cmd.set_description()
     elif base == "Volume.set_name":
