@@ -16,6 +16,7 @@ API quirks (discovered in the spike — see datacore.md):
 
 import json
 import os
+import time
 from urllib.parse import urlparse
 
 import requests
@@ -28,6 +29,16 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 API_PATH = "/RestService/rest.svc/1.0"
 VOLUME_TYPE_MIRRORED = 2
 SNAPSHOT_TYPE_DIFFERENTIAL = 1  # instant, COW on the array, source-dependent
+
+# Observed empirically (probe, 2026-05-20): a freshly created mirrored vDisk
+# reports DiskStatus=1 ("not up-to-date" — mirror legs still syncing) and
+# transitions to DiskStatus=0 ("Online") once the array considers it ready.
+# `POST /snapshots` against a DiskStatus=1 source fails with
+# "Cannot perform snapshot operations on virtual disk ... while it is not
+# up-to-date", so Volume.create must block until the steady state.
+DISK_STATUS_ONLINE = 0
+VDISK_READY_TIMEOUT = 60.0
+VDISK_READY_POLL_INTERVAL = 0.5
 
 # (connect, read) seconds. Connect is short — TCP handshake to a healthy
 # DataCore server completes in milliseconds. Read is generous because some
@@ -243,6 +254,39 @@ class DataCoreClient:
         if isinstance(resp, list) and resp:
             return resp[0]
         raise DataCoreError("Unexpected create response: {!r}".format(resp))
+
+    def wait_for_vdisk_online(self, vdisk_id, timeout=VDISK_READY_TIMEOUT,
+                              interval=VDISK_READY_POLL_INTERVAL):
+        """Poll the vDisk until DiskStatus reports Online, or raise on timeout.
+
+        Newly-created mirrored vDisks start at DiskStatus=1 (legs syncing) and
+        transition to DiskStatus=0 within ~2s for an empty 512 MiB vDisk on
+        the lab rig. Snapshot/clone refuses to operate on a not-yet-Online
+        source, so callers that may immediately follow create with another
+        operation must block here.
+
+        If DiskStatus is missing from the response (older DataCore versions
+        or future schema changes), assume ready rather than spinning forever.
+        """
+        deadline = time.monotonic() + timeout
+        last_status = None
+        while True:
+            d = self.find_vdisk_by_id(vdisk_id)
+            if d is None:
+                raise DataCoreError(
+                    "wait_for_vdisk_online: vDisk {} disappeared".format(vdisk_id))
+            status = d.get("DiskStatus")
+            if status is None:
+                return d  # field absent: trust the array, don't spin
+            if status == DISK_STATUS_ONLINE:
+                return d
+            last_status = status
+            if time.monotonic() >= deadline:
+                raise DataCoreError(
+                    "vDisk {} did not become ready within {}s "
+                    "(DiskStatus stayed at {}); manual cleanup may be needed".format(
+                        vdisk_id, timeout, last_status))
+            time.sleep(interval)
 
     def update_description(self, vdisk_id, description):
         self.put("/virtualdisks/{}".format(vdisk_id), {"Description": description})

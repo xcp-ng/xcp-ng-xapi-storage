@@ -58,7 +58,11 @@ class Implementation(xapi.storage.api.v5.volume.Volume_skeleton):
             size,
             description=meta,
         )
-        log.debug("{}: Volume.create -> Id={}".format(dbg, d["Id"]))
+        log.debug("{}: Volume.create -> Id={} (waiting for mirror sync)".format(dbg, d["Id"]))
+        # Block until DiskStatus=Online so an immediately-following snapshot
+        # or clone doesn't hit DataCore's "not up-to-date" 400.
+        d = client.wait_for_vdisk_online(d["Id"])
+        log.debug("{}: Volume.create Id={} ready".format(dbg, d["Id"]))
         return datacoreapi.vdisk_to_vdi_info(d, sr)
 
     def destroy(self, dbg, sr, key):
