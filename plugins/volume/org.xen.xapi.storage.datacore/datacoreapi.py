@@ -18,13 +18,27 @@ import json
 from urllib.parse import urlparse
 
 import requests
+from requests.adapters import HTTPAdapter
 import urllib3
+from urllib3.util.retry import Retry
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 API_PATH = "/RestService/rest.svc/1.0"
 VOLUME_TYPE_MIRRORED = 2
 SNAPSHOT_TYPE_DIFFERENTIAL = 1  # instant, COW on the array, source-dependent
+
+# (connect, read) seconds. Connect is short — TCP handshake to a healthy
+# DataCore server completes in milliseconds. Read is generous because some
+# REST operations (create_mirrored_vdisk, serve_vdisk) take a few seconds.
+HTTP_TIMEOUT = (5, 60)
+
+# POST is deliberately excluded from retries. urllib3.Retry doesn't know
+# whether a 5xx / connection-reset POST was processed before failing, and
+# retrying would risk duplicate vDisk creation / duplicate Serve mappings.
+# GET / PUT / DELETE are all idempotent in our API so retrying is safe.
+_RETRY_METHODS = frozenset(["GET", "PUT", "DELETE"])
+_RETRY_STATUS = (500, 502, 503, 504)
 
 
 class DataCoreError(Exception):
@@ -56,6 +70,21 @@ def _resolve_password(cfg):
         session.xenapi.session.logout()
 
 
+def _build_retry():
+    """urllib3 Retry policy. total=4 with backoff_factor=0.5 gives sleeps of
+    roughly 0s, 1s, 2s, 4s between attempts — bounded at ~7s of waiting."""
+    return Retry(
+        total=4,
+        connect=4,
+        read=2,
+        status=2,
+        backoff_factor=0.5,
+        status_forcelist=_RETRY_STATUS,
+        allowed_methods=_RETRY_METHODS,
+        raise_on_status=False,
+    )
+
+
 class DataCoreClient:
     def __init__(self, endpoint, username, password, verify=False):
         self.base = endpoint.rstrip("/") + API_PATH
@@ -63,6 +92,9 @@ class DataCoreClient:
         self.session.verify = verify
         self.session.auth = (username, password)
         self.session.headers["ServerHost"] = urlparse(endpoint).hostname or "localhost"
+        adapter = HTTPAdapter(max_retries=_build_retry())
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
 
     @classmethod
     def from_sr_config(cls, cfg):
@@ -88,16 +120,18 @@ class DataCoreClient:
             return r.text
 
     def get(self, path):
-        return self._check(self.session.get(self.base + path))
+        return self._check(self.session.get(self.base + path, timeout=HTTP_TIMEOUT))
 
     def post(self, path, body=None):
-        return self._check(self.session.post(self.base + path, json=body or {}))
+        return self._check(self.session.post(self.base + path, json=body or {},
+                                             timeout=HTTP_TIMEOUT))
 
     def put(self, path, body):
-        return self._check(self.session.put(self.base + path, json=body))
+        return self._check(self.session.put(self.base + path, json=body,
+                                            timeout=HTTP_TIMEOUT))
 
     def delete(self, path):
-        return self._check(self.session.delete(self.base + path))
+        return self._check(self.session.delete(self.base + path, timeout=HTTP_TIMEOUT))
 
     def list_pools(self):
         return self.get("/pools") or []
