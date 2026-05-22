@@ -19,6 +19,7 @@ portals — DataCore's Serve refuses with ErrorCode 4 if there's no live session
 between initiator and target.
 """
 
+import glob
 import json
 import os
 import subprocess
@@ -38,7 +39,9 @@ import datacoreapi  # noqa: E402
 
 
 STASH_DIR = "/run/datacore-sr"
-DEVICE_POLL_TIMEOUT = 30  # seconds
+DEVICE_POLL_TIMEOUT = 90  # seconds — udev can fall behind under bursty rescans
+                          # (e.g. parallel clones + cloud-init customisation);
+                          # 30 s was tight enough that the long tail tripped it.
 DEVICE_POLL_INTERVAL = 0.5
 MPATH_POLL_TIMEOUT = 15
 MPATH_POLL_INTERVAL = 0.3
@@ -216,11 +219,117 @@ def _wait_for_mpath(wwn, dbg):
 
 
 def _flush_multipath(wwn, dbg):
-    """Flush the dm map for this WWID. Non-zero exit is harmless (no map)."""
+    """Tear down the dm-mapper state for `wwn` in the right order.
+
+    The naive `multipath -f <wwid>` fails as soon as a partition-child
+    mapping exists on top of the parent — and partition children appear
+    automatically the moment dom0 attaches a LUN that carries a partition
+    table (any cloned template, any cloud-init drive after `mkfs.vfat`).
+    Without the chain below, the parent map lingers forever as a corpse
+    with "Device or resource busy"; the next clone's iSCSI rescan piles up
+    on top of accumulated corpses until udev can no longer keep its by-id
+    symlinks fresh inside `DEVICE_POLL_TIMEOUT`, and Datapath.attach
+    starts timing out for unrelated LUNs. We learnt this the hard way.
+
+    The chain must be in this exact order:
+      1. `kpartx -d <parent>` drops the auto-spawned partition children.
+      2. Belt-and-braces `dmsetup remove --force` on any `*p*` strays
+         that kpartx missed (e.g. when a partition was renamed by udev).
+      3. `multipath -f <wwid>` now flushes the parent — the refcount has
+         hit zero.
+      4. `multipath -w <wwid>` purges the entry from /etc/multipath/wwids
+         so multipathd doesn't resurrect the map on its next rescan.
+
+    Every step is best-effort: non-zero exit is logged but doesn't raise,
+    because partial cleanup (e.g. no partition children present) is the
+    common case and should be silent."""
     mpath_wwid = "3" + wwn.lower()
+    mpath_path = "/dev/mapper/" + mpath_wwid
+
+    # 1. kpartx -d — drops partition mappings spawned from the parent.
+    r = subprocess.run(["kpartx", "-d", mpath_path],
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    if r.returncode != 0:
+        log.debug("{}: kpartx -d {} exit={} (likely no partitions): {}".format(
+            dbg, mpath_path, r.returncode, r.stderr.decode(errors="replace").strip()))
+
+    # 2. Backstop: hunt for any partition-shaped names kpartx left behind.
+    for stray in glob.glob(mpath_path + "p*") + glob.glob(mpath_path + "[0-9]*"):
+        name = os.path.basename(stray)
+        r = subprocess.run(["dmsetup", "remove", "--force", name],
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+        log.debug("{}: dmsetup remove {} exit={}".format(dbg, name, r.returncode))
+
+    # 3. Flush the parent map.
     r = subprocess.run(["multipath", "-f", mpath_wwid],
                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
     log.debug("{}: multipath -f {} exit={}".format(dbg, mpath_wwid, r.returncode))
+
+    # 3b. Backstop: `multipath -f` returns silently (exit 0) without removing
+    # the map when its underlying paths are already gone — common after an
+    # out-of-band sd eviction. Fall back to `dmsetup remove --force` directly
+    # on the parent in that case so corpses don't accumulate.
+    if os.path.exists(mpath_path):
+        r = subprocess.run(["dmsetup", "remove", "--force", mpath_wwid],
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+        log.debug("{}: dmsetup remove --force {} exit={}".format(
+            dbg, mpath_wwid, r.returncode))
+
+    # 4. Purge the wwid from /etc/multipath/wwids so multipathd doesn't
+    # re-register the map on its next rescan. Without this step the map
+    # comes back even after a successful `-f`.
+    r = subprocess.run(["multipath", "-w", mpath_wwid],
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    log.debug("{}: multipath -w {} exit={}".format(dbg, mpath_wwid, r.returncode))
+
+
+def _flush_orphan_multipath_maps(dbg):
+    """Sweep `/dev/mapper/3*` for DataCore multipath maps whose underlying
+    SCSI paths are gone, and tear them down with the full flush chain.
+
+    Sister to `_evict_orphan_datacore_sds`: same idea, the dm-mapper layer.
+    An orphan parent map sticks around if the prior Datapath.detach skipped
+    `_flush_multipath` (worker killed mid-flight, hard VM shutdown, plugin
+    crash during teardown). Each lingering map costs udev work on the next
+    attach: it has to skip over the corpses building its by-id table, and
+    enough of them pile up to push the by-id symlink for a fresh LUN past
+    DEVICE_POLL_TIMEOUT. Cleaning them at attach-start keeps the udev
+    pipeline drainable.
+
+    Identification: any `/dev/mapper/3<wwn>` whose `dmsetup info` reports
+    a UUID starting with `mpath-` AND whose `multipath -ll <wwid>` shows
+    no `active` paths is considered orphan. The template's real LUN
+    (with active paths) is left alone.
+    """
+    try:
+        candidates = [
+            os.path.basename(p)
+            for p in glob.glob("/dev/mapper/3*")
+            if not _is_partition_child(os.path.basename(p))
+        ]
+    except OSError:
+        return
+    for name in candidates:
+        r = subprocess.run(["dmsetup", "info", "-c", "--noheadings",
+                            "-o", "uuid", name],
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+        if not r.stdout.decode().strip().startswith("mpath-"):
+            continue  # not a multipath map; leave alone
+        # If there's at least one active path, it's the live LUN. Skip.
+        ll = subprocess.run(["multipath", "-ll", name],
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+        if b"active ready running" in ll.stdout:
+            continue
+        log.info("{}: flush orphan multipath map {}".format(dbg, name))
+        # strip the leading "3" to get the wwn the way _flush_multipath wants it
+        _flush_multipath(name[1:], dbg)
+
+
+def _is_partition_child(name):
+    """`360030d90...p1` or `360030d90...1` style child of a parent map."""
+    # parent wwid is exactly 33 chars (a leading "3" + 32 hex). Anything
+    # longer is a partition.
+    return len(name) > 33
 
 
 def _write_sysfs(path, value, dbg):
@@ -287,6 +396,10 @@ class Implementation(xapi.storage.api.v5.datapath.Datapath_skeleton):
         # materialises. Safe to run unconditionally — only touches DataCore
         # sd's whose wwid is empty.
         _evict_orphan_datacore_sds(dbg)
+        # Also sweep stale dm-mapper parents whose paths are gone — same
+        # idea, the multipath layer. Cheap if nothing's there; critical
+        # after burst cycles or VM crashes that skipped clean detach.
+        _flush_orphan_multipath_maps(dbg)
 
         client.serve_vdisk(vdisk_id, host_id)
         _rescan_iscsi()
