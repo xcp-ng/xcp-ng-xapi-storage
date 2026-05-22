@@ -166,6 +166,54 @@ DataCore (where pools aren't SRs) the XML is empty. Use `sr-probe-ext`.
   on the destination SR; that service is unimplemented in our SMAPIv3
   plugin for raw-block-device datapaths. Offline migration via
   `xe vdi-copy` works in both directions and is the supported path.
+- **`Volume.clone` is an independent full copy, NOT a fast COW clone.**
+  DataCore's `Type=1` differential snapshot is instant and COW-cheap but
+  the resulting vDisk is a snapshot DESTINATION (Type=0). DataCore then
+  refuses several downstream operations on Type=0 vDisks:
+    * `xe vdi-resize` larger than source — HTTP 400 *"has snapshots
+      attached"*. Breaks XAPI's `vm-install` resize step.
+    * `xe vm-snapshot` on any VM whose boot disk is a Type=0 clone —
+      HTTP 400 *"Cannot create a snapshot for virtual disk because it
+      is a snapshot destination"*. Breaks backup / checkpoint workflows.
+    * Other chained-dependency complications.
+
+  We tried a hybrid (fast clone + lazy promote-on-resize) but the
+  snapshot-of-snapshot wall is unreachable without leaving XAPI:
+  a running VM whose boot disk is Type=0 cannot be promoted in-flight
+  because we can't take a crash-consistent snapshot of it to read from.
+
+  `Volume.clone` therefore provisions a fresh Type=2 mirrored vDisk at
+  the source's size and copies via `qemu-img convert` through dom0.
+  The result supports every downstream operation. Cost: O(template size)
+  at SAN bandwidth, currently bottlenecked on the dom0 round-trip
+  (~50 s per 5 GiB template). Trade-off accepted: one-time provisioning
+  hit vs. permanently broken snapshot workflows.
+
+  The DataCore OpenStack Cinder driver does the array-side copy
+  differently — `Full` snapshot + wait for `Migrated` + delete-as-split
+  — but that uses the SOAP/WCF API which exposes a richer `SnapshotType`
+  enum. The REST shim only exposes `Type=0` (continuous replication,
+  never finalises) and `Type=1` (differential, DELETE removes the
+  destination). Neither gives us the "split into independent vDisk"
+  semantic. Probed exhaustively 2026-05-22. Re-enabling fast-clone
+  later would require either PowerShell-over-WinRM to invoke DataCore's
+  actual `Promote-DcsSnapshot` cmdlet, or a live-mirror–based promote
+  (reusing the outbound-migration delta-sync machinery).
+- **No REST primitive for direct vDisk copy / migration.** DataCore's
+  full `.Net` cmdlet surface (`Copy-DcsVirtualDisk`, `Move-DcsVirtualDisk`,
+  `Promote-DcsSnapshot` …) is not exposed via the REST shim. We probed
+  every plausible verb. The only path to an array-side copy via REST
+  is the `Type=0` Full-snapshot + wait + split sequence above (currently
+  unwired in our plugin). VAAI XCOPY (T10 EXTENDED COPY) is not
+  advertised over iSCSI either (`sg_vpd --page=tpc` fetch fails on
+  DataCore LUNs). All cross-vDisk data movement therefore goes through
+  dom0 today.
+- **No CBT primitive over REST.** DataCore tracks a *Delta Map*
+  internally (shown as a percentage in the Web Console) but offers no
+  API to read it as an offset/length list per block. Live VDI mirror
+  delta has to compute its own block diff (`bytes != bytes` memcmp on
+  two snapshot block-devices) — fast in practice but more work than a
+  hypothetical `GET /virtualdisks/diff`.
 
 ## Troubleshooting
 

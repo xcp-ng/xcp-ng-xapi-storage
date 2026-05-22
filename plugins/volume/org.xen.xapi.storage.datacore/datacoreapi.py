@@ -14,8 +14,12 @@ API quirks (discovered in the spike — see datacore.md):
   - Operation: Unserve returns HTTP 200 with an empty body.
 """
 
+import contextlib
+import fcntl
 import json
 import os
+import subprocess
+import sys
 import time
 from urllib.parse import urlparse
 
@@ -23,6 +27,26 @@ import requests
 from requests.adapters import HTTPAdapter
 import urllib3
 from urllib3.util.retry import Retry
+
+from xapi.storage import log
+
+QEMU_IMG = "/usr/lib64/xen/bin/qemu-img"  # XCP-ng's bundled QEMU; not on default PATH
+
+
+def _datapath_helpers():
+    """Lazy cross-import of the datapath plugin's iSCSI/multipath helpers.
+
+    These primitives (Serve + iSCSI rescan + by-id wait + multipath register)
+    live in the datapath plugin because that's where they're naturally used.
+    Volume.clone needs them too — to attach a snapshot + destination pair to
+    dom0 and run qemu-img convert between them. Importing lazily keeps the
+    volume plugin from depending on the datapath script being present at
+    module-load time."""
+    dp_path = "/usr/libexec/xapi-storage-script/datapath/datacore-iscsi"
+    if dp_path not in sys.path:
+        sys.path.insert(0, dp_path)
+    import datapath as dp  # noqa: E402
+    return dp
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -548,21 +572,43 @@ def _vdisk_preferred_server_id(d):
 
 
 def pick_snapshot_pool(cfg, source_vdisk):
-    """Pick the non-preferred-side pool for a snapshot, per DataCore best practice.
+    """Pick the destination pool for a snapshot of `source_vdisk`.
 
-    Quoting Snapshot Operations docs: "Where possible create snapshots on the
-    non-preferred side of a mirrored Virtual Disk." That keeps snapshot
-    capacity balanced across both servers instead of piling everything on the
-    primary. DataCore snapshots are always single-pool ("The snapshot can only
-    exist on one server"); HA of the snapshot itself is out of scope at this
-    API level (see plugin README).
+    DataCore's snapshot constraint is asymmetric depending on the source's
+    mirror status:
 
-    If we can't determine the source's preferred server, default to
-    second-pool (still avoids the all-on-first-pool failure mode).
+      * **Type=2 mirrored vDisks** (templates, normal SMAPIv3-created volumes):
+        the snapshot's single LD can live on either server, since both servers
+        have direct visibility to the source. Best practice (per Snapshot
+        Operations docs) is to put it on the *non-preferred* side so snapshot
+        capacity balances instead of piling on the primary.
+
+      * **Type=0 single-server vDisks** (our fast clones — destinations of
+        a differential snapshot; CD/ISO LUNs; any other single-LD vDisk):
+        the source physically exists on only one server. DataCore rejects
+        snapshot create with `HTTP 400: Disk ... does not belong to server X`
+        if the destination pool is on the *other* server. The snapshot MUST
+        land on the same side as the source.
+
+    Failing to distinguish these blew up `VM.snapshot` on a VM whose boot
+    disk was a clone (Type=0 on ServerB): the function returned ServerA's
+    pool per the "non-preferred-side" rule and DataCore refused. Fixed by
+    checking `Type` first.
     """
     first = cfg["first-pool"]
     second = cfg["second-pool"]
     preferred = _vdisk_preferred_server_id(source_vdisk)
+
+    if source_vdisk.get("Type") == 0:
+        # Single-server source — snapshot must co-locate with the (only) LD.
+        if preferred and preferred == _server_id_from_pool(first):
+            return first
+        if preferred and preferred == _server_id_from_pool(second):
+            return second
+        # If we can't tell which server holds the source, prefer first.
+        return first
+
+    # Mirrored source — balance load by placing snapshot on the non-preferred side.
     if preferred and preferred == _server_id_from_pool(first):
         return second
     if preferred and preferred == _server_id_from_pool(second):
@@ -606,3 +652,225 @@ def find_vdisk_by_vdi_uuid(client, sr_uuid, vdi_uuid):
         if meta.get("xcp-ng:vdi-uuid") == vdi_uuid:
             return d
     return None
+
+
+def find_snapshot_record_by_dest_vdisk(client, vdisk):
+    """Find the snapshot RECORD whose destination LD lives on `vdisk`.
+    Returns the snapshot dict (with .Id) or None.
+
+    Differential clones look like normal Type=0 vDisks but have a parent
+    snapshot record on the array. Volume.destroy on such a clone has to
+    DELETE the snapshot record (which cascades to delete the dest vDisk),
+    not just the vDisk directly — DataCore refuses the vDisk delete when
+    a snapshot record points at one of its logical disks."""
+    # The vDisk's LogicalDisks have Ids; the snapshot record's
+    # DestinationLogicalDiskId points to one of them.
+    ld_ids = set()
+    for ld in client.get("/logicaldisks") or []:
+        if ld.get("VirtualDiskId") == vdisk["Id"]:
+            ld_ids.add(ld["Id"])
+    if not ld_ids:
+        return None
+    for sn in client.get("/snapshots") or []:
+        if sn.get("DestinationLogicalDiskId") in ld_ids:
+            return sn
+    return None
+
+
+def delete_snapshot_record(client, snap_record_id):
+    """DELETE /snapshots/<id>. Cascades to delete the snapshot's destination
+    vDisk. The Id format contains `{...}` which has to be URL-encoded for
+    the REST endpoint to match the route."""
+    enc = snap_record_id.replace("{", "%7B").replace("}", "%7D")
+    return client.delete("/snapshots/" + enc)
+
+
+def promote_to_independent(client, cfg, sr, src_vdisk, new_size, dbg):
+    """Convert a differential-snapshot clone into an independent mirrored
+    vDisk at `new_size`. Used by Volume.resize when DataCore refuses to
+    grow a clone because of its snapshot parent.
+
+    Steps:
+      1. Create a new independent mirrored vDisk at `new_size`, carrying
+         the same `xcp-ng:vdi-uuid` metadata as the source clone (so
+         XAPI's next `find_vdisk_by_vdi_uuid` resolves to the new vDisk).
+      2. Serve both to dom0, run `qemu-img convert` between them.
+      3. Find the snapshot RECORD that owns the source clone's dest LD,
+         delete it — this cascades to delete the old clone's vDisk.
+
+    XAPI's per-VDI lock holds across this call, so concurrent ops on the
+    same vDisk queue naturally. Other vDisks in the same SR may proceed
+    in parallel.
+    """
+    host_id = cfg.get("host-id")
+    if not host_id:
+        raise DataCoreError("promote_to_independent: SR config missing host-id")
+
+    src_id = src_vdisk["Id"]
+    src_wwn = src_vdisk["ScsiDeviceIdString"].lower()
+    src_meta = parse_metadata(src_vdisk.get("Description"))
+    vdi_uuid = src_meta.get("xcp-ng:vdi-uuid")
+    if not vdi_uuid:
+        raise DataCoreError(
+            "promote_to_independent: source vdisk {} has no xcp-ng:vdi-uuid metadata".format(src_id))
+
+    # 1. Provision the new independent mirrored vDisk at the requested size.
+    # Use a temp alias during promote; switch to the canonical alias after
+    # the old vDisk is gone (so DataCore doesn't reject a duplicate name).
+    tmp_alias = "{}promote-{}".format(vdisk_prefix(sr), vdi_uuid[:8])
+    canonical_alias = "{}{}".format(vdisk_prefix(sr), vdi_uuid)
+    new_meta = encode_metadata(
+        vdi_uuid=vdi_uuid,
+        sr_uuid=sr,
+        vdi_name=src_meta.get("xcp-ng:vdi-name", ""),
+        description=src_meta.get("xcp-ng:vdi-description", ""),
+        sharable=bool(src_meta.get("xcp-ng:sharable", False)),
+        read_write=True,
+        is_snapshot=False,
+        parent_vdi_uuid=src_meta.get("xcp-ng:parent-vdi-uuid"),
+    )
+    log.info("{}: promote: creating independent vDisk {} at {} bytes".format(
+        dbg, tmp_alias, new_size))
+    new_d = client.create_mirrored_vdisk(
+        tmp_alias, cfg["first-pool"], cfg["second-pool"],
+        new_size, description=new_meta)
+    new_d = client.wait_for_vdisk_online(new_d["Id"])
+    new_wwn = new_d["ScsiDeviceIdString"].lower()
+
+    try:
+        # 2. Copy data via dom0.
+        copy_vdisk_data(client, host_id, src_id, src_wwn,
+                        new_d["Id"], new_wwn, dbg)
+        unserve_and_evict(client, host_id, src_id, src_wwn, dbg)
+        unserve_and_evict(client, host_id, new_d["Id"], new_wwn, dbg)
+    except Exception:
+        # Cleanup the half-baked new vDisk on failure; the source clone
+        # stays intact (XAPI's resize call propagates the error to the user).
+        try:
+            unserve_and_evict(client, host_id, new_d["Id"], new_wwn, dbg)
+            client.delete_vdisk(new_d["Id"])
+        except Exception as ee:
+            log.error("{}: promote cleanup-after-failure: {}".format(dbg, ee))
+        raise
+
+    # 3. Delete the old clone via its snapshot record (cascades to dest vDisk).
+    snap_record = find_snapshot_record_by_dest_vdisk(client, src_vdisk)
+    if snap_record:
+        log.info("{}: promote: deleting snapshot record {}".format(dbg, snap_record["Id"]))
+        try:
+            delete_snapshot_record(client, snap_record["Id"])
+        except Exception as e:
+            log.error("{}: promote: snapshot record delete: {}".format(dbg, e))
+            # Fall through and try the direct vDisk delete as a backstop.
+    try:
+        client.delete_vdisk(src_id)
+    except DataCoreError as e:
+        # Expected to fail if the snapshot record already cascaded the delete.
+        if "not found" not in str(e).lower() and "does not exist" not in str(e).lower():
+            log.error("{}: promote: src delete (best-effort): {}".format(dbg, e))
+
+    # 4. Rename the new vDisk to the canonical alias now that the old is gone.
+    try:
+        client.put("/virtualdisks/" + new_d["Id"], {"Caption": canonical_alias})
+    except Exception as e:
+        log.error("{}: promote: rename to canonical alias failed: {}".format(dbg, e))
+    log.info("{}: promote: complete (vdi_uuid={} new vDisk={})".format(
+        dbg, vdi_uuid, new_d["Id"]))
+    return new_d
+
+
+_DOM0_ATTACH_LOCK_PATH = "/run/datacore-sr/.dom0-attach.lock"
+
+
+@contextlib.contextmanager
+def _dom0_attach_lock():
+    """Host-wide mutex around the dom0 iSCSI/udev/multipath machinery.
+
+    Concurrent clone workers each Serve their own snapshot+destination pair
+    and then call iscsiadm rescan + udevadm settle + multipath register.
+    Those operations share global state in /sys/block, /dev/disk/by-id, and
+    /dev/mapper — running them simultaneously from multiple processes races:
+    udev queues events but `wait_for_device`'s 30 s by-id symlink poll
+    times out before udev catches up.
+
+    Holding this flock around the attach/detach critical sections
+    serialises only the dom0-side setup (~5 s per worker). The actual data
+    copy via `qemu-img convert` runs unlocked, in parallel across workers."""
+    os.makedirs(COPY_DIR, exist_ok=True)
+    f = open(_DOM0_ATTACH_LOCK_PATH, "w")
+    try:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        yield
+    finally:
+        try:
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+        except Exception:
+            pass
+        f.close()
+
+
+def _attach_vdisk_to_dom0(client, host_id, vdisk_id, wwn, dbg):
+    """Serve `vdisk_id` to dom0 and wait for the kernel device. Returns the
+    device path (multipath if active, else sd-by-id). Holds the dom0 lock
+    around the iSCSI/udev/multipath dance so concurrent workers don't race."""
+    dp = _datapath_helpers()
+    with _dom0_attach_lock():
+        dp._evict_orphan_datacore_sds(dbg)
+        dp._flush_orphan_multipath_maps(dbg)
+        client.serve_vdisk(vdisk_id, host_id)
+        dp._rescan_iscsi()
+        dev = dp._wait_for_device(wwn, dbg)
+        if dp._multipath_active():
+            dp._register_with_multipath(wwn, dbg)
+            mpath = dp._wait_for_mpath(wwn, dbg)
+            if mpath is not None:
+                dev = mpath
+    return dev
+
+
+COPY_DIR = "/run/datacore-sr"
+
+
+def copy_vdisk_data(client, host_id, src_vdisk_id, src_wwn,
+                    dst_vdisk_id, dst_wwn, dbg):
+    """Attach src + dst to dom0 and run `qemu-img convert` between them.
+
+    Used by Volume.clone: source is a fresh differential snapshot of the
+    template (frozen point-in-time, safe to read even if the template is
+    in use); destination is a fresh empty mirrored vDisk at the same size.
+
+    Writes go through writethrough cache mode so the data is durable on the
+    destination by the time qemu-img exits (qemu-img defaults to cache=unsafe
+    which skips fsync at end — that bites us with qemu-nbd-style destinations
+    but applies to raw block devices too on some kernels)."""
+    src_dev = _attach_vdisk_to_dom0(client, host_id, src_vdisk_id, src_wwn, dbg)
+    dst_dev = _attach_vdisk_to_dom0(client, host_id, dst_vdisk_id, dst_wwn, dbg)
+    log.info("{}: copy_vdisk_data: {} -> {}".format(dbg, src_dev, dst_dev))
+    subprocess.run(
+        [QEMU_IMG, "convert", "-n", "-t", "writethrough",
+         "-f", "raw", "-O", "raw", src_dev, dst_dev],
+        check=True,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+
+def unserve_and_evict(client, host_id, vdisk_id, wwn, dbg):
+    """Reverse of `_attach_vdisk_to_dom0`: best-effort teardown that flushes
+    multipath, evicts sd paths, then Unserves on the array. Errors are
+    logged but not raised — callers run this from cleanup paths where
+    forward progress matters more than perfect reporting. Holds the same
+    dom0 lock as the attach side."""
+    dp = _datapath_helpers()
+    with _dom0_attach_lock():
+        if wwn:
+            try:
+                dp._flush_multipath(wwn, dbg)
+            except Exception as e:
+                log.error("{}: unserve_and_evict flush_multipath {}: {}".format(dbg, wwn, e))
+            try:
+                dp._evict_scsi_paths_for_wwn(wwn, dbg)
+            except Exception as e:
+                log.error("{}: unserve_and_evict evict_scsi {}: {}".format(dbg, wwn, e))
+        try:
+            client.unserve_vdisk(vdisk_id, host_id)
+        except Exception as e:
+            log.error("{}: unserve_and_evict unserve {}: {}".format(dbg, vdisk_id, e))

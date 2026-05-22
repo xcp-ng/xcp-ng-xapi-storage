@@ -87,6 +87,21 @@ class Implementation(xapi.storage.api.v5.volume.Volume_skeleton):
         if d is None:
             log.debug("{}: Volume.destroy: VDI {} not found, treating as already destroyed".format(dbg, key))
             return
+        # Clones produced by Volume.clone are differential-snapshot
+        # destinations: a snapshot RECORD on the array points at one of
+        # this vDisk's logical disks. DataCore refuses DELETE on the vDisk
+        # while that snapshot record exists. Find the record (if any) and
+        # delete it first — that cascades to delete the vDisk itself.
+        snap_record = datacoreapi.find_snapshot_record_by_dest_vdisk(client, d)
+        if snap_record:
+            log.info("{}: Volume.destroy: deleting snapshot record {} (cascades to vDisk)".format(
+                dbg, snap_record["Id"]))
+            try:
+                datacoreapi.delete_snapshot_record(client, snap_record["Id"])
+                log.info("{}: Volume.destroy: snapshot+vdisk cascade-deleted".format(dbg))
+                return
+            except Exception as e:
+                log.debug("{}: Volume.destroy: snapshot record delete failed: {} (falling through to direct delete)".format(dbg, e))
         # Best-effort Unserve before delete. DataCore refuses DELETE on a
         # vDisk that is still Served to any host ("is served to one or
         # multiple hosts and cannot be deleted"). The usual lifecycle has
@@ -119,14 +134,34 @@ class Implementation(xapi.storage.api.v5.volume.Volume_skeleton):
         if new_size == current:
             log.debug("{}: Volume.resize: already at {} bytes, no-op".format(dbg, current))
             return
-        client.resize_vdisk(d["Id"], new_size)
-        # Grow triggers a brief mirror re-sync (DiskStatus 0 -> 1 -> 0).
-        # Block until Online so an immediately-following snapshot/clone
-        # doesn't race the "not up-to-date" check the same way the
-        # post-create wait protects against.
-        client.wait_for_vdisk_online(d["Id"])
-        log.info("{}: Volume.resize: vdisk={} {} -> {} bytes".format(
-            dbg, d["Id"], current, new_size))
+        try:
+            client.resize_vdisk(d["Id"], new_size)
+            # Grow triggers a brief mirror re-sync (DiskStatus 0 -> 1 -> 0).
+            # Block until Online so an immediately-following snapshot/clone
+            # doesn't race the "not up-to-date" check the same way the
+            # post-create wait protects against.
+            client.wait_for_vdisk_online(d["Id"])
+            log.info("{}: Volume.resize: vdisk={} {} -> {} bytes".format(
+                dbg, d["Id"], current, new_size))
+            return
+        except datacoreapi.DataCoreError as e:
+            if "snapshots attached" not in str(e).lower() \
+                    and "cannot be resized" not in str(e).lower():
+                raise
+            # The vDisk is itself a differential-snapshot destination (a
+            # fast clone). DataCore won't resize it — the geometry is tied
+            # to its parent. Promote to an independent mirrored vDisk at
+            # the new size; the clone becomes detached from the template.
+            #
+            # This is the hybrid path: fast clones stay fast in the common
+            # case (same-size as template), and only pay the copy cost
+            # when something actually asks them to grow.
+            log.info(
+                "{}: Volume.resize: clone {} can't be resized in place "
+                "(differential snapshot of a smaller source); promoting "
+                "to an independent vDisk at {} bytes".format(
+                    dbg, d["Id"], new_size))
+            datacoreapi.promote_to_independent(client, cfg, sr, d, new_size, dbg)
 
     def stat(self, dbg, sr, key):
         log.debug("{}: Volume.stat sr={} key={}".format(dbg, sr, key))
@@ -138,14 +173,14 @@ class Implementation(xapi.storage.api.v5.volume.Volume_skeleton):
         return datacoreapi.vdisk_to_vdi_info(d, sr)
 
     def snapshot(self, dbg, sr, key):
-        return self._snapshot_or_clone(dbg, sr, key, is_snapshot=True)
+        """Take a crash-consistent point-in-time snapshot of `key`.
 
-    def clone(self, dbg, sr, key):
-        return self._snapshot_or_clone(dbg, sr, key, is_snapshot=False)
-
-    def _snapshot_or_clone(self, dbg, sr, key, is_snapshot):
-        op = "snapshot" if is_snapshot else "clone"
-        log.debug("{}: Volume.{} sr={} key={}".format(dbg, op, sr, key))
+        DataCore Type=1 differential snapshot: instant, COW on the array,
+        dependent on the source. Use this for backup checkpoints and the
+        cutover-delta machinery in outbound migration — anywhere you want
+        "a frozen view of the source as it was at this instant".
+        """
+        log.debug("{}: Volume.snapshot sr={} key={}".format(dbg, sr, key))
         cfg = sr_mod._read_stash(sr)
         client = datacoreapi.DataCoreClient.from_sr_config(cfg)
         src = datacoreapi.find_vdisk_by_vdi_uuid(client, sr, key)
@@ -159,42 +194,129 @@ class Implementation(xapi.storage.api.v5.volume.Volume_skeleton):
         # pool will still lose the snapshot — that's a hard DataCore limit,
         # documented as a HA gap in the plugin README.
         dest_pool = datacoreapi.pick_snapshot_pool(cfg, src)
-
         src_meta = datacoreapi.parse_metadata(src.get("Description"))
-        # Inherit source's display name unless it was empty.
-        src_name = src_meta.get("xcp-ng:vdi-name", "")
-        src_desc = src_meta.get("xcp-ng:vdi-description", "")
-
         new_uuid = str(uuidlib.uuid4())
         vdisk_name = "{}{}".format(datacoreapi.vdisk_prefix(sr), new_uuid)
-        log.info("{}: Volume.{} src={} dest_pool={} new_uuid={}".format(
-            dbg, op, src["Id"], dest_pool, new_uuid))
+        log.info("{}: Volume.snapshot src={} dest_pool={} new_uuid={}".format(
+            dbg, src["Id"], dest_pool, new_uuid))
 
         d = client.create_differential_snapshot(
             source_vdisk_id=src["Id"],
             name=vdisk_name,
             destination_pool=dest_pool,
         )
-
-        # Description does NOT propagate from source to snapshot — must PUT
-        # explicitly. Snapshots are returned read_write=False (XAPI semantic);
-        # clones are returned read_write=True. The DataCore array itself
-        # accepts writes on a Type=1 snapshot regardless.
         meta = datacoreapi.encode_metadata(
             vdi_uuid=new_uuid,
             sr_uuid=sr,
-            vdi_name=src_name,
-            description=src_desc,
+            vdi_name=src_meta.get("xcp-ng:vdi-name", ""),
+            description=src_meta.get("xcp-ng:vdi-description", ""),
             sharable=bool(src_meta.get("xcp-ng:sharable", False)),
-            read_write=(not is_snapshot),
-            is_snapshot=is_snapshot,
+            read_write=False,
+            is_snapshot=True,
             parent_vdi_uuid=key,
         )
         client.update_description(d["Id"], meta)
-        # Re-fetch so vdi_info reflects the new Description.
         d = client.find_vdisk_by_id(d["Id"]) or d
-        d["Description"] = meta  # ensure parse_metadata sees the new blob
+        d["Description"] = meta
         return datacoreapi.vdisk_to_vdi_info(d, sr)
+
+    def clone(self, dbg, sr, key):
+        """Create an INDEPENDENT writable copy of `key`.
+
+        Why full-copy instead of a Type=1 differential snapshot:
+
+        DataCore's Type=1 differential snapshot is instant and COW-cheap,
+        but the resulting vDisk is a snapshot DESTINATION (Type=0). DataCore
+        then refuses several downstream operations on Type=0 vDisks:
+          * `xe vdi-resize` larger than source — "has snapshots attached"
+            (geometry tied to parent). Breaks XAPI's vm-install resize step.
+          * `xe vm-snapshot` on the resulting VM — "cannot create a snapshot
+            for virtual disk because it is a snapshot destination". Breaks
+            backup/checkpoint workflows.
+          * Other chained-dependency complications.
+
+        We briefly tried a hybrid (fast clone + lazy promote-on-resize), but
+        the snapshot-of-snapshot wall is unreachable without leaving XAPI:
+        a running VM whose boot disk is Type=0 cannot be promoted in-flight
+        because we can't take a crash-consistent snapshot of it to read from.
+
+        Going full-copy by default trades ~50 s per clone (host-side qemu-img
+        convert through dom0) for a Type=2 mirrored vDisk that supports every
+        downstream operation. The cost is a one-time provisioning hit; the
+        alternative regressed every snapshot workflow thereafter.
+        """
+        log.debug("{}: Volume.clone sr={} key={}".format(dbg, sr, key))
+        cfg = sr_mod._read_stash(sr)
+        host_id = cfg.get("host-id")
+        if not host_id:
+            raise Exception("Volume.clone: SR config missing 'host-id'")
+        client = datacoreapi.DataCoreClient.from_sr_config(cfg)
+        src = datacoreapi.find_vdisk_by_vdi_uuid(client, sr, key)
+        if src is None:
+            raise xapi.storage.api.v5.volume.Volume_does_not_exist(key)
+
+        src_meta = datacoreapi.parse_metadata(src.get("Description"))
+        new_uuid = str(uuidlib.uuid4())
+        new_vdisk_name = "{}{}".format(datacoreapi.vdisk_prefix(sr), new_uuid)
+        size = int(src["Size"]["Value"])
+
+        # 1. Take a Type=1 snapshot of the source so the qemu-img convert
+        #    reads a crash-consistent point-in-time, even if the source is
+        #    currently attached to a running VM. We delete the snapshot at
+        #    the end of the clone.
+        snap_pool = datacoreapi.pick_snapshot_pool(cfg, src)
+        snap_name = "{}clone-src-{}".format(
+            datacoreapi.vdisk_prefix(sr), new_uuid[:8])
+        log.info("{}: Volume.clone: snapshotting src={} for consistent read".format(
+            dbg, src["Id"]))
+        snap = client.create_differential_snapshot(
+            src["Id"], snap_name, snap_pool,
+            description="xcp:clone-source-snapshot")
+        snap_id = snap["Id"]
+        client.wait_for_vdisk_online(snap_id)
+        snap = client.find_vdisk_by_id(snap_id) or snap
+        snap_wwn = snap["ScsiDeviceIdString"].lower()
+
+        # 2. Provision the destination as a fresh Type=2 mirrored vDisk at
+        #    the source's size. Independent from creation — supports resize,
+        #    snapshot, every subsequent operation.
+        meta = datacoreapi.encode_metadata(
+            vdi_uuid=new_uuid,
+            sr_uuid=sr,
+            vdi_name=src_meta.get("xcp-ng:vdi-name", ""),
+            description=src_meta.get("xcp-ng:vdi-description", ""),
+            sharable=bool(src_meta.get("xcp-ng:sharable", False)),
+            read_write=True,
+            is_snapshot=False,
+            parent_vdi_uuid=key,
+        )
+        log.info("{}: Volume.clone: creating dest vDisk {} size={}".format(
+            dbg, new_vdisk_name, size))
+        new_d = client.create_mirrored_vdisk(
+            new_vdisk_name,
+            cfg["first-pool"], cfg["second-pool"],
+            size,
+            description=meta,
+        )
+        new_d = client.wait_for_vdisk_online(new_d["Id"])
+        new_wwn = new_d["ScsiDeviceIdString"].lower()
+
+        # 3. Serve both to dom0 and copy via qemu-img convert.
+        try:
+            datacoreapi.copy_vdisk_data(
+                client, host_id, snap_id, snap_wwn, new_d["Id"], new_wwn, dbg)
+        finally:
+            # 4. Tear down everything except the new vDisk (XAPI will Serve
+            #    the new one later via Datapath.attach when a VBD plugs in).
+            datacoreapi.unserve_and_evict(client, host_id, snap_id, snap_wwn, dbg)
+            datacoreapi.unserve_and_evict(client, host_id, new_d["Id"], new_wwn, dbg)
+            try:
+                client.delete_vdisk(snap_id)
+            except Exception as e:
+                log.error("{}: clone: snap delete failed: {}".format(dbg, e))
+
+        log.info("{}: Volume.clone: new_uuid={} done".format(dbg, new_uuid))
+        return datacoreapi.vdisk_to_vdi_info(new_d, sr)
 
     def set_description(self, dbg, sr, key, new_description):
         log.debug("{}: Volume.set_description sr={} key={}".format(dbg, sr, key))
