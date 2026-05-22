@@ -213,9 +213,12 @@ class DataCoreClient:
         Returns 0 if the pool isn't found — caller decides how to handle
         the missing-pool case.
         """
-        for p in self.list_pools():
-            if p.get("Id") == pool_id:
-                return int((p.get("ChunkSize") or {}).get("Value", 0))
+        try:
+            for p in self.list_pools():
+                if p.get("Id") == pool_id:
+                    return int((p.get("ChunkSize") or {}).get("Value", 0))
+        except Exception as e:
+            raise DataCoreError("Failed to get pool chunk size for {}: {}".format(pool_id, e))
         return 0
 
     def align_size_to_chunk(self, size, chunk):

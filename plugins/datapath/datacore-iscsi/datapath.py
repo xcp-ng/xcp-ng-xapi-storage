@@ -65,7 +65,7 @@ def _wait_for_device(wwn, dbg):
             log.debug("{}: device {} ready -> {}".format(dbg, dev, os.path.realpath(dev)))
             return dev
         time.sleep(DEVICE_POLL_INTERVAL)
-    raise Exception("Device {} did not appear within {}s".format(dev, DEVICE_POLL_TIMEOUT))
+    raise Exception("{}: Device {} did not appear within {}s".format(dbg, dev, DEVICE_POLL_TIMEOUT))
 
 
 def _rescan_iscsi():
@@ -82,11 +82,19 @@ def _rescan_iscsi():
     # Forcing a change-action trigger on all block devices makes udev
     # re-run its rules with the current wwid attribute and update the
     # by-id symlinks to match. settle drains the resulting queue.
-    subprocess.run(["udevadm", "trigger", "--action=change",
-                    "--subsystem-match=block"],
-                   check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    subprocess.run(["udevadm", "settle", "--timeout=30"],
-                   check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        subprocess.run(["udevadm", "trigger", "--action=change",
+                        "--subsystem-match=block"],
+                       check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except Exception as e:
+        log.error("Failed to trigger udevadm: {}".format(e))
+        # Continue anyway as this is not critical for operation
+    try:
+        subprocess.run(["udevadm", "settle", "--timeout=30"],
+                       check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except Exception as e:
+        log.error("Failed to settle udev: {}".format(e))
+        # Continue anyway as this is not critical for operation
 
 
 def _iter_sd_paths_for_wwn(wwn):
