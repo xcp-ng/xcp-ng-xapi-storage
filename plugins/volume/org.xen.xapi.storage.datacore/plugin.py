@@ -37,7 +37,13 @@ class Implementation(xapi.storage.api.v5.plugin.Plugin_skeleton):
                 "VDI_SNAPSHOT",
                 "VDI_CLONE",
                 "VDI_UPDATE",
+                "VDI_MIRROR",
             ],
+            # VDI_MIRROR advertises that this SR can be the SOURCE of a live
+            # VDI migration (`xe vdi-pool-migrate` outbound). XAPI's SMAPIv3
+            # outbound machinery (`storage_smapiv3_migrate.ml`) is in place;
+            # the plugin contributes `Data.mirror` etc. (see datapath plugin).
+            #
             # NOTE: VDI_MIRROR_IN is intentionally NOT advertised yet.
             # `xe vdi-pool-migrate` (live storage XenMotion) needs the
             # destination SR's plugin to expose an NBD endpoint

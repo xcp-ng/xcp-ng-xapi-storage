@@ -327,6 +327,20 @@ class Implementation(xapi.storage.api.v5.datapath.Datapath_skeleton):
 
     def deactivate(self, dbg, uri, domain):
         log.debug("{}: Datapath.deactivate uri={} domain={}".format(dbg, uri, domain))
+        # If there's an active outbound mirror for this VDI, this is the
+        # cutover deactivate (VM I/O paused). Run the snap1-vs-snap2 delta
+        # pass before XAPI proceeds with detach + Volume.destroy, otherwise
+        # the destination ends up with stale data (snapshot point-in-time
+        # rather than the live source at cutover).
+        try:
+            _sr_uuid, vdisk_id = _parse_uri(uri)
+        except Exception:
+            return
+        try:
+            import data as data_mod  # lazy: data.py imports datapath at top level
+            data_mod.cutover_delta(vdisk_id, dbg)
+        except Exception as e:
+            log.error("{}: Datapath.deactivate cutover_delta: {}".format(dbg, e))
 
     def detach(self, dbg, uri, domain):
         log.debug("{}: Datapath.detach uri={} domain={}".format(dbg, uri, domain))
