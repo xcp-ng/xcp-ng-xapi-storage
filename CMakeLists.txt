@@ -33,10 +33,12 @@ find_package(Python2 COMPONENTS Interpreter REQUIRED)
 set(DATAPATH_PLUGINS
 #  qdisk
   tapdisk
+  datacore-iscsi
 )
 
 set(VOLUME_PLUGINS
   org.xen.xapi.storage.zfs-vol
+  org.xen.xapi.storage.datacore
 #  org.xen.xapi.storage.ext4-ng
 #  org.xen.xapi.storage.filebased
 #  org.xen.xapi.storage.nfs-ng
@@ -173,6 +175,16 @@ foreach (PLUGIN_NAME ${VOLUME_PLUGINS})
     create_plugin_symlink(${PLUGIN_NAME} "plugin.py" "Plugin.${LINK_NAME}" ${OUT_PLUGINS_DIR})
   endforeach ()
 endforeach ()
+
+# Install DataCore host-tuning snippets (udev + multipath.conf.d)
+install(FILES udev/99-datacore-vates.rules
+  DESTINATION /etc/udev/rules.d
+  PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ
+)
+install(FILES multipath/datacore-vates.conf
+  DESTINATION /etc/multipath/conf.d
+  PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ
+)
 
 # Install doc.
 install(FILES LICENSE README.md
